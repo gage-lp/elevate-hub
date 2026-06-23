@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Elevate Hub</title>
+
+<!-- ============================================================= -->
+<!--  CONFIGURE THESE TWO LINES (Supabase → Project Settings → API) -->
+<!-- ============================================================= -->
+<script>
+  const SUPABASE_URL = 'https://lncqjxyjelglmblxojei.supabase.co';
+  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxuY3FqeHlqZWxnbG1ibHhvamVpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIyNDYwNDIsImV4cCI6MjA5NzgyMjA0Mn0.3pbYmkC-IuxlvbEEDaifM3kNWgTxT4qMNp9Fu6Hbkyg';
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.2/Sortable.min.js"></script>
+
+<style>
+  :root{
+    --bg:#070a18;
+    --glass:rgba(255,255,255,0.06);
+    --glass-border:rgba(255,255,255,0.12);
+    --text:#eaf0ff;
+    --muted:#9aa6c9;
+    --accent:#7b8cff;
+    --accent-2:#c77bff;
+    --radius:20px;
+    font-family:"Inter",system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    background:var(--bg);
+    color:var(--text);
+    min-height:100vh;
+    overflow-x:hidden;
+    position:relative;
+  }
+
+  /* ---- Living Nebula background ---- */
+  .nebula{position:fixed;inset:0;z-index:-2;overflow:hidden;background:var(--bg)}
+  .blob{position:absolute;border-radius:50%;filter:blur(80px);opacity:.55;mix-blend-mode:screen}
+  .b1{width:55vw;height:55vw;left:-10vw;top:-15vw;background:radial-gradient(circle,#3a4cff,transparent 70%);animation:drift1 28s ease-in-out infinite}
+  .b2{width:45vw;height:45vw;right:-10vw;top:10vh;background:radial-gradient(circle,#c14bff,transparent 70%);animation:drift2 34s ease-in-out infinite}
+  .b3{width:50vw;height:50vw;left:20vw;bottom:-20vw;background:radial-gradient(circle,#2bd4ff,transparent 70%);animation:drift3 40s ease-in-out infinite}
+  @keyframes drift1{0%,100%{transform:translate(0,0)}50%{transform:translate(8vw,6vh)}}
+  @keyframes drift2{0%,100%{transform:translate(0,0)}50%{transform:translate(-6vw,8vh)}}
+  @keyframes drift3{0%,100%{transform:translate(0,0)}50%{transform:translate(5vw,-7vh)}}
+  .grain{position:fixed;inset:0;z-index:-1;opacity:.04;pointer-events:none;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8'/%3E%3C/filter%3E%3Crect width='100' height='100' filter='url(%23n)'/%3E%3C/svg%3E")}
+
+  /* ---- Shell ---- */
+  header{
+    display:flex;align-items:center;justify-content:space-between;gap:16px;
+    padding:22px clamp(20px,5vw,56px);
+    position:sticky;top:0;z-index:20;
+    backdrop-filter:blur(14px);
+    background:linear-gradient(180deg,rgba(7,10,24,.7),rgba(7,10,24,0));
+  }
+  .brand{display:flex;align-items:center;gap:12px}
+  .brand .mark{width:34px;height:34px;border-radius:10px;
+    background:linear-gradient(135deg,var(--accent),var(--accent-2));
+    box-shadow:0 0 24px rgba(123,140,255,.6)}
+  .brand h1{font-size:20px;font-weight:700;letter-spacing:.3px}
+  .brand span{display:block;font-size:11px;color:var(--muted);font-weight:500;letter-spacing:1.5px;text-transform:uppercase}
+  .head-right{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .who{font-size:13px;color:var(--muted);margin-right:4px}
+
+  .btn{
+    border:1px solid var(--glass-border);
+    background:var(--glass);color:var(--text);
+    padding:9px 16px;border-radius:12px;font-size:13px;font-weight:600;
+    cursor:pointer;transition:.2s;backdrop-filter:blur(8px);
+  }
+  .btn:hover{border-color:var(--accent);transform:translateY(-1px)}
+  .btn.primary{background:linear-gradient(135deg,var(--accent),var(--accent-2));border:none;color:#fff;box-shadow:0 6px 24px rgba(123,140,255,.35)}
+  .btn.danger{border-color:rgba(255,90,90,.5);color:#ff8a8a}
+  .btn.danger:hover{background:rgba(255,90,90,.12)}
+  .btn.sm{padding:6px 11px;font-size:12px}
+
+  main{padding:18px clamp(20px,5vw,56px) 80px;max-width:1500px;margin:0 auto}
+  .edit-banner{
+    display:none;align-items:center;gap:10px;
+    background:rgba(123,140,255,.12);border:1px solid rgba(123,140,255,.35);
+    border-radius:14px;padding:12px 16px;margin-bottom:22px;font-size:13px;color:#cdd6ff}
+  body.editing .edit-banner{display:flex}
+
+  /* ---- Card grid ---- */
+  .grid{
+    display:grid;gap:22px;
+    grid-template-columns:repeat(auto-fill,minmax(290px,1fr));
+  }
+  .card{
+    position:relative;
+    background:var(--glass);
+    border:1px solid var(--glass-border);
+    border-radius:var(--radius);
+    overflow:hidden;
+    backdrop-filter:blur(16px);
+    transition:transform .28s cubic-bezier(.2,.8,.2,1),box-shadow .28s,border-color .28s;
+    display:flex;flex-direction:column;
+  }
+  .card:hover{transform:translateY(-6px) scale(1.012);border-color:rgba(123,140,255,.5);
+    box-shadow:0 20px 50px rgba(0,0,0,.45),0 0 40px rgba(123,140,255,.18)}
+  .thumb{aspect-ratio:16/9;width:100%;object-fit:cover;background:
+    linear-gradient(135deg,rgba(123,140,255,.25),rgba(199,123,255,.25))}
+  .thumb.empty{display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:13px}
+  .card-body{padding:18px 18px 20px;display:flex;flex-direction:column;gap:7px;flex:1}
+  .card-body h3{font-size:18px;font-weight:700;line-height:1.2}
+  .sub{font-size:12px;color:var(--accent);font-weight:600;letter-spacing:.4px;text-transform:uppercase}
+  .desc{font-size:13.5px;color:var(--muted);line-height:1.5;flex:1}
+  .card .open{margin-top:6px;text-align:center;text-decoration:none}
+  .lock-tag{position:absolute;top:12px;right:12px;font-size:11px;font-weight:600;
+    background:rgba(7,10,24,.7);border:1px solid var(--glass-border);
+    padding:4px 9px;border-radius:20px;color:#ffd27b;backdrop-filter:blur(6px)}
+  .admin-tools{display:none;gap:8px;padding:0 18px 16px}
+  body.editing .admin-tools{display:flex}
+  body.editing .card{cursor:grab}
+  body.editing .card.dragging{opacity:.5}
+
+  .empty-state{text-align:center;padding:80px 20px;color:var(--muted)}
+
+  /* ---- Login ---- */
+  .login-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
+  .login-card{width:100%;max-width:380px;background:var(--glass);border:1px solid var(--glass-border);
+    border-radius:24px;padding:34px 30px;backdrop-filter:blur(18px);box-shadow:0 30px 80px rgba(0,0,0,.5)}
+  .login-card .mark{width:46px;height:46px;border-radius:13px;margin:0 auto 18px;
+    background:linear-gradient(135deg,var(--accent),var(--accent-2));box-shadow:0 0 30px rgba(123,140,255,.6)}
+  .login-card h2{text-align:center;font-size:22px;margin-bottom:4px}
+  .login-card p{text-align:center;color:var(--muted);font-size:13px;margin-bottom:24px}
+  input,textarea{
+    width:100%;background:rgba(0,0,0,.25);border:1px solid var(--glass-border);
+    color:var(--text);padding:12px 14px;border-radius:12px;font-size:14px;font-family:inherit;margin-bottom:12px}
+  input:focus,textarea:focus{outline:none;border-color:var(--accent)}
+  label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px;font-weight:600}
+  .err{color:#ff8a8a;font-size:13px;min-height:18px;text-align:center;margin-top:4px}
+
+  /* ---- Modal ---- */
+  .overlay{position:fixed;inset:0;z-index:50;background:rgba(3,5,14,.7);backdrop-filter:blur(6px);
+    display:none;align-items:flex-start;justify-content:center;padding:40px 20px;overflow-y:auto}
+  .overlay.show{display:flex}
+  .modal{width:100%;max-width:520px;background:#0d1228;border:1px solid var(--glass-border);
+    border-radius:22px;padding:28px}
+  .modal h2{font-size:20px;margin-bottom:18px}
+  .row{display:flex;gap:12px}.row>*{flex:1}
+  .toggle{display:flex;align-items:center;gap:10px;margin:6px 0 14px;font-size:14px;cursor:pointer}
+  .toggle input{width:auto;margin:0}
+  .access-list{max-height:200px;overflow-y:auto;border:1px solid var(--glass-border);
+    border-radius:12px;padding:10px;margin-bottom:14px}
+  .access-list label{display:flex;align-items:center;gap:8px;color:var(--text);margin-bottom:8px;cursor:pointer}
+  .access-list input{width:auto;margin:0}
+  .modal-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:8px}
+  .hidden{display:none!important}
+  .thumb-preview{width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:12px;margin-bottom:12px;display:none}
+</style>
+</head>
+<body>
+<div class="nebula"><div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div></div>
+<div class="grain"></div>
+
+<!-- LOGIN -->
+<div id="login" class="login-wrap">
+  <div class="login-card">
+    <div class="mark"></div>
+    <h2>Elevate Hub</h2>
+    <p>Sign in with the account set up for you</p>
+    <label>Email</label>
+    <input id="email" type="email" autocomplete="username" placeholder="you@elevate.com">
+    <label>Password</label>
+    <input id="password" type="password" autocomplete="current-password" placeholder="••••••••">
+    <button class="btn primary" style="width:100%;margin-top:6px" onclick="signIn()">Sign In</button>
+    <div id="loginErr" class="err"></div>
+  </div>
+</div>
+
+<!-- APP -->
+<div id="app" class="hidden">
+  <header>
+    <div class="brand">
+      <div class="mark"></div>
+      <div><h1>Elevate Hub</h1><span>Resource Library</span></div>
+    </div>
+    <div class="head-right">
+      <span class="who" id="who"></span>
+      <button id="editBtn" class="btn hidden" onclick="toggleEdit()">Edit mode</button>
+      <button id="addBtn" class="btn primary hidden" onclick="openModal()">+ Add card</button>
+      <button class="btn" onclick="signOut()">Sign out</button>
+    </div>
+  </header>
+
+  <main>
+    <div class="edit-banner">✦ Edit mode — drag cards to reorder, or use the buttons on each card.</div>
+    <div id="grid" class="grid"></div>
+    <div id="emptyState" class="empty-state hidden">No resources available yet.</div>
+  </main>
+</div>
+
+<!-- ADD/EDIT MODAL -->
+<div id="overlay" class="overlay">
+  <div class="modal">
+    <h2 id="modalTitle">Add card</h2>
+    <input type="hidden" id="cardId">
+    <label>Title</label>
+    <input id="f_title" placeholder="Elevate Academy">
+    <label>Subtitle</label>
+    <input id="f_subtitle" placeholder="Training & Certification">
+    <label>Description</label>
+    <textarea id="f_description" rows="3" placeholder="Short blurb shown on the card"></textarea>
+    <div class="row">
+      <div><label>Link URL</label><input id="f_link" placeholder="https://..."></div>
+      <div><label>Button label</label><input id="f_button" placeholder="Open"></div>
+    </div>
+    <label>Thumbnail</label>
+    <img id="thumbPreview" class="thumb-preview">
+    <input id="f_thumb" type="file" accept="image/*">
+    <label class="toggle"><input type="checkbox" id="f_visall" onchange="toggleAccessList()"> Visible to all agents</label>
+    <div id="accessWrap">
+      <label>Or pick who can see it</label>
+      <div id="accessList" class="access-list"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">Cancel</button>
+      <button class="btn primary" id="saveBtn" onclick="saveCard()">Save</button>
+    </div>
+    <div id="modalErr" class="err"></div>
+  </div>
+</div>
+
+<script>
+let sb, me = null, isAdmin = false, agents = [], sortable = null;
+
+function init(){
+  if(!window.supabase || SUPABASE_URL.includes('YOUR-PROJECT')){
+    document.getElementById('loginErr').textContent =
+      'Add your Supabase URL and anon key at the top of the file.';
+    return;
+  }
+  sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  sb.auth.getSession().then(({data})=>{ if(data.session) onLoggedIn(); });
+}
+
+async function signIn(){
+  const email = document.getElementById('email').value.trim();
+  const password = document.getElementById('password').value;
+  const err = document.getElementById('loginErr'); err.textContent = '';
+  const {error} = await sb.auth.signInWithPassword({email, password});
+  if(error){ err.textContent = error.message; return; }
+  onLoggedIn();
+}
+
+async function signOut(){ await sb.auth.signOut(); location.reload(); }
+
+async function onLoggedIn(){
+  const {data:{user}} = await sb.auth.getUser();
+  const {data:profile} = await sb.from('profiles').select('*').eq('id', user.id).single();
+  me = {...user, ...profile};
+  isAdmin = profile && profile.role === 'admin';
+
+  document.getElementById('login').classList.add('hidden');
+  document.getElementById('app').classList.remove('hidden');
+  document.getElementById('who').textContent = (profile?.full_name || user.email) + (isAdmin ? ' · Admin' : '');
+
+  if(isAdmin){
+    document.getElementById('editBtn').classList.remove('hidden');
+    document.getElementById('addBtn').classList.remove('hidden');
+    const {data} = await sb.from('profiles').select('id,full_name').eq('role','agent').order('full_name');
+    agents = data || [];
+  }
+  loadCards();
+}
+
+async function loadCards(){
+  // RLS returns ONLY the cards this user is allowed to see.
+  const {data:cards, error} = await sb.from('cards').select('*').order('sort_order');
+  if(error){ console.error(error); return; }
+
+  // For admins, fetch access rows so the lock badge can show
+  let accessByCard = {};
+  if(isAdmin){
+    const {data:acc} = await sb.from('card_access').select('card_id,user_id');
+    (acc||[]).forEach(a=>{ (accessByCard[a.card_id] = accessByCard[a.card_id] || []).push(a.user_id); });
+  }
+
+  const grid = document.getElementById('grid');
+  grid.innerHTML = '';
+  document.getElementById('emptyState').classList.toggle('hidden', cards.length>0);
+
+  cards.forEach(c=>{
+    const el = document.createElement('div');
+    el.className = 'card'; el.dataset.id = c.id;
+    const restricted = !c.visible_to_all;
+    el.innerHTML = `
+      ${isAdmin && restricted ? '<span class="lock-tag">🔒 Restricted</span>' : ''}
+      ${c.thumbnail_url
+        ? `<img class="thumb" src="${esc(c.thumbnail_url)}" alt="">`
+        : `<div class="thumb empty">No image</div>`}
+      <div class="card-body">
+        ${c.subtitle ? `<div class="sub">${esc(c.subtitle)}</div>` : ''}
+        <h3>${esc(c.title)}</h3>
+        ${c.description ? `<div class="desc">${esc(c.description)}</div>` : '<div class="desc"></div>'}
+        <a class="btn primary open" href="${esc(c.link_url)}" target="_blank" rel="noopener">
+          ${esc(c.button_label || 'Open')}</a>
+      </div>
+      <div class="admin-tools">
+        <button class="btn sm" onclick='editCard(${JSON.stringify(c)})'>Edit</button>
+        <button class="btn sm danger" onclick="deleteCard('${c.id}')">Delete</button>
+      </div>`;
+    el._access = accessByCard[c.id] || [];
+    grid.appendChild(el);
+  });
+
+  if(isAdmin) setupSort();
+}
+
+function setupSort(){
+  if(sortable) sortable.destroy();
+  sortable = Sortable.create(document.getElementById('grid'), {
+    animation:180, disabled:!document.body.classList.contains('editing'),
+    ghostClass:'dragging',
+    onEnd: persistOrder
+  });
+}
+
+async function persistOrder(){
+  const ids = [...document.querySelectorAll('#grid .card')].map(el=>el.dataset.id);
+  await Promise.all(ids.map((id,i)=> sb.from('cards').update({sort_order:i}).eq('id',id)));
+}
+
+function toggleEdit(){
+  const editing = document.body.classList.toggle('editing');
+  document.getElementById('editBtn').textContent = editing ? 'Done' : 'Edit mode';
+  if(sortable) sortable.option('disabled', !editing);
+}
+
+/* ---- Modal ---- */
+function openModal(){
+  document.getElementById('modalTitle').textContent = 'Add card';
+  ['cardId','f_title','f_subtitle','f_description','f_link','f_button'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('f_thumb').value = '';
+  document.getElementById('thumbPreview').style.display = 'none';
+  document.getElementById('f_visall').checked = false;
+  buildAccessList([]);
+  toggleAccessList();
+  document.getElementById('modalErr').textContent='';
+  document.getElementById('overlay').classList.add('show');
+}
+
+function editCard(c){
+  openModal();
+  document.getElementById('modalTitle').textContent = 'Edit card';
+  document.getElementById('cardId').value = c.id;
+  document.getElementById('f_title').value = c.title || '';
+  document.getElementById('f_subtitle').value = c.subtitle || '';
+  document.getElementById('f_description').value = c.description || '';
+  document.getElementById('f_link').value = c.link_url || '';
+  document.getElementById('f_button').value = c.button_label || '';
+  document.getElementById('f_visall').checked = !!c.visible_to_all;
+  if(c.thumbnail_url){
+    const p = document.getElementById('thumbPreview');
+    p.src = c.thumbnail_url; p.style.display='block';
+  }
+  const el = document.querySelector(`#grid .card[data-id="${c.id}"]`);
+  buildAccessList(el ? el._access : []);
+  toggleAccessList();
+}
+
+function buildAccessList(checkedIds){
+  const list = document.getElementById('accessList');
+  list.innerHTML = agents.length ? '' : '<span style="color:var(--muted);font-size:13px">No agents yet.</span>';
+  agents.forEach(a=>{
+    const id = 'acc_'+a.id;
+    list.insertAdjacentHTML('beforeend',
+      `<label><input type="checkbox" value="${a.id}" ${checkedIds.includes(a.id)?'checked':''}> ${esc(a.full_name||'(no name)')}</label>`);
+  });
+}
+function toggleAccessList(){
+  document.getElementById('accessWrap').style.display =
+    document.getElementById('f_visall').checked ? 'none' : 'block';
+}
+function closeModal(){ document.getElementById('overlay').classList.remove('show'); }
+
+async function saveCard(){
+  const err = document.getElementById('modalErr'); err.textContent='';
+  const id = document.getElementById('cardId').value;
+  const title = document.getElementById('f_title').value.trim();
+  const link = document.getElementById('f_link').value.trim();
+  if(!title || !link){ err.textContent='Title and link are required.'; return; }
+
+  const saveBtn = document.getElementById('saveBtn');
+  saveBtn.disabled = true; saveBtn.textContent = 'Saving…';
+
+  try{
+    // upload thumbnail if a new file was picked
+    let thumbUrl;
+    const file = document.getElementById('f_thumb').files[0];
+    if(file){
+      const path = `${crypto.randomUUID()}-${file.name.replace(/[^\w.\-]/g,'_')}`;
+      const {error:upErr} = await sb.storage.from('thumbnails').upload(path, file);
+      if(upErr) throw upErr;
+      thumbUrl = sb.storage.from('thumbnails').getPublicUrl(path).data.publicUrl;
+    }
+
+    const payload = {
+      title, subtitle: document.getElementById('f_subtitle').value.trim(),
+      description: document.getElementById('f_description').value.trim(),
+      link_url: link, button_label: document.getElementById('f_button').value.trim() || 'Open',
+      visible_to_all: document.getElementById('f_visall').checked
+    };
+    if(thumbUrl) payload.thumbnail_url = thumbUrl;
+
+    let cardId = id;
+    if(id){
+      const {error} = await sb.from('cards').update(payload).eq('id', id);
+      if(error) throw error;
+    }else{
+      const {count} = await sb.from('cards').select('*',{count:'exact',head:true});
+      payload.sort_order = count || 0;
+      const {data, error} = await sb.from('cards').insert(payload).select('id').single();
+      if(error) throw error;
+      cardId = data.id;
+    }
+
+    // sync access allowlist (only matters when not visible_to_all)
+    await sb.from('card_access').delete().eq('card_id', cardId);
+    if(!payload.visible_to_all){
+      const checked = [...document.querySelectorAll('#accessList input:checked')].map(i=>i.value);
+      if(checked.length){
+        await sb.from('card_access').insert(checked.map(uid=>({card_id:cardId, user_id:uid})));
+      }
+    }
+
+    closeModal();
+    loadCards();
+  }catch(e){
+    console.error(e); err.textContent = e.message || 'Something went wrong.';
+  }finally{
+    saveBtn.disabled = false; saveBtn.textContent = 'Save';
+  }
+}
+
+async function deleteCard(id){
+  if(!confirm('Delete this card?')) return;
+  await sb.from('cards').delete().eq('id', id);
+  loadCards();
+}
+
+document.getElementById('f_thumb')?.addEventListener('change', e=>{
+  const f = e.target.files[0]; const p = document.getElementById('thumbPreview');
+  if(f){ p.src = URL.createObjectURL(f); p.style.display='block'; }
+});
+
+function esc(s){ return String(s??'').replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
+
+window.addEventListener('keydown', e=>{ if(e.key==='Enter' && !document.getElementById('login').classList.contains('hidden')) signIn(); });
+init();
+</script>
+</body>
+</html>
