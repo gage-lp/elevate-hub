@@ -1,0 +1,1104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Elevate Hub</title>
+
+<!-- ============================================================= -->
+<!--  Content Security Policy                                       -->
+<!--                                                                -->
+<!--  GitHub Pages can't set real headers, so this is a meta CSP.    -->
+<!--  Limitation: frame-ancestors is ignored in meta form, so the    -->
+<!--  frame-buster near the top of the script block covers that.     -->
+<!--  'unsafe-inline' is required for script-src because this is a   -->
+<!--  single-file app with inline handlers. That's a real weakness   -->
+<!--  and it's the reason default-src is 'none' and connect-src is   -->
+<!--  locked to one host: an injected script still can't phone home. -->
+<!-- ============================================================= -->
+<meta http-equiv="Content-Security-Policy" content="
+  default-src 'none';
+  script-src 'self' 'unsafe-inline';
+  style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+  font-src https://fonts.gstatic.com;
+  img-src 'self' data: blob: https://lncqjxyjelglmblxojei.supabase.co;
+  connect-src https://lncqjxyjelglmblxojei.supabase.co wss://lncqjxyjelglmblxojei.supabase.co;
+  form-action 'none';
+  base-uri 'none';
+  object-src 'none';
+">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+
+<script>
+  const SUPABASE_URL = 'https://lncqjxyjelglmblxojei.supabase.co';
+  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxuY3FqeHlqZWxnbG1ibHhvamVpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIyNDYwNDIsImV4cCI6MjA5NzgyMjA0Mn0.3pbYmkC-IuxlvbEEDaifM3kNWgTxT4qMNp9Fu6Hbkyg';
+
+  const MAX_THUMB_BYTES = 5 * 1024 * 1024;   // 5 MB
+  const SIGNED_URL_TTL  = 60 * 60;           // 1 hour
+  const IDLE_TIMEOUT_MS = 12 * 60 * 60 * 1000; // sign out after 12h idle
+
+  // SVG is deliberately excluded — an SVG is a document that can carry
+  // <script>, and the storage bucket would serve it with that content-type.
+  const ALLOWED_IMAGE_TYPES = ['image/png','image/jpeg','image/webp','image/gif'];
+
+  // Who agents are told to contact when they're stuck. Change here, both places update.
+  const SUPPORT_CONTACT = 'Gage';
+</script>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800&family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+<!-- Vendored from the npm registry, committed to the repo. No CDN in the
+     trust path: these run with full access to the session, so a bad CDN
+     build would mean every token. Update by re-running npm pack. -->
+<script src="vendor/supabase-js-2.115.0.js"></script>
+<script src="vendor/sortable-1.15.7.min.js"></script>
+
+<style>
+  :root{
+    --bg:#030328;
+    --panel:#0a0a35;
+    --card:#0c0c3c;
+    --glass:rgba(255,255,255,0.05);
+    --glass-border:rgba(255,255,255,0.14);
+    --text:#eef2ff;
+    --muted:#a3abd8;
+    --accent:#00FBF0;
+    --accent-2:#4d7cff;
+    --on-accent:#03102b;
+    --font-body:"Poppins",system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+    --font-display:"Montserrat",system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+    font-family:var(--font-body);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{background:var(--bg);color:var(--text);min-height:100dvh;overflow:hidden;position:relative}
+  h1,h2,h3{font-family:var(--font-display)}
+
+  :focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:6px}
+
+  .nebula{position:fixed;inset:0;z-index:-2;overflow:hidden;background:
+    radial-gradient(120% 100% at 50% -10%, #0a0f47 0%, var(--bg) 60%)}
+  .blob{position:absolute;border-radius:50%;filter:blur(90px);opacity:.28;mix-blend-mode:screen}
+  .b1{width:55vw;height:55vw;left:-15vw;top:-20vw;background:radial-gradient(circle,#1a3bff,transparent 70%);animation:drift1 34s ease-in-out infinite}
+  .b2{width:45vw;height:45vw;right:-12vw;top:20vh;background:radial-gradient(circle,#00FBF0,transparent 70%);animation:drift2 40s ease-in-out infinite;opacity:.18}
+  @keyframes drift1{0%,100%{transform:translate(0,0)}50%{transform:translate(7vw,5vh)}}
+  @keyframes drift2{0%,100%{transform:translate(0,0)}50%{transform:translate(-5vw,7vh)}}
+
+  .hidden{display:none!important}
+
+  /* ====================== BOOT ======================
+     Shown first, always. The session check is async, so without this the
+     login card is what everyone sees for a beat — including people who are
+     already signed in. Neutral state until we know which screen is right. */
+  #boot{position:fixed;inset:0;z-index:90;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;gap:20px;background:transparent;
+    transition:opacity .35s ease}
+  #boot.fade{opacity:0;pointer-events:none}
+  #boot .mark{width:54px;height:54px;border-radius:15px;
+    background:linear-gradient(135deg,var(--accent),var(--accent-2));
+    box-shadow:0 0 40px rgba(0,251,240,.45);animation:breathe 1.7s ease-in-out infinite}
+  @keyframes breathe{0%,100%{transform:scale(1);opacity:.8}50%{transform:scale(1.09);opacity:1}}
+  #boot .msg{font-size:15px;color:var(--muted);font-weight:500;letter-spacing:.2px}
+  @media(prefers-reduced-motion:reduce){#boot .mark{animation:none}}
+
+  /* ====================== AUTH SCREENS ====================== */
+  .login-wrap{height:100dvh;display:flex;align-items:center;justify-content:center;padding:24px}
+  .login-card{width:100%;max-width:380px;background:var(--glass);border:1px solid var(--glass-border);
+    border-radius:24px;padding:34px 30px;backdrop-filter:blur(18px);box-shadow:0 30px 80px rgba(0,0,0,.55)}
+  .login-card .mark{width:46px;height:46px;border-radius:13px;margin:0 auto 18px;
+    background:linear-gradient(135deg,var(--accent),var(--accent-2));box-shadow:0 0 30px rgba(0,251,240,.35)}
+  .login-card h2{text-align:center;font-size:24px;margin-bottom:4px}
+  .login-card p{text-align:center;color:var(--muted);font-size:14.5px;margin-bottom:24px}
+  /* Word instead of an eye icon — no guessing what it does. */
+  .pw-wrap{position:relative}
+  .pw-wrap input{padding-right:82px}
+  .pw-toggle{position:absolute;right:8px;top:9px;background:none;border:none;color:var(--accent);
+    font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;padding:6px 8px;border-radius:8px}
+  .pw-toggle:hover{background:rgba(0,251,240,.10)}
+
+  .linkbtn{display:block;width:100%;text-align:center;background:none;border:none;color:var(--muted);
+    font-family:inherit;font-size:14px;margin-top:14px;cursor:pointer;text-decoration:underline}
+  .linkbtn:hover{color:var(--accent)}
+  .ok{color:#7ef0c0;font-size:14px;text-align:center;margin-top:8px;min-height:18px}
+
+  input,textarea{width:100%;background:rgba(0,0,0,.28);border:1px solid var(--glass-border);
+    color:var(--text);padding:13px 14px;border-radius:12px;font-size:16px;font-family:inherit;margin-bottom:12px}
+  input:focus,textarea:focus{outline:none;border-color:var(--accent)}
+  label{display:block;font-size:13px;color:var(--muted);margin-bottom:6px;font-weight:600}
+  .err{color:#ff8a8a;font-size:14px;min-height:18px;text-align:center;margin-top:4px}
+  .btn{border:1px solid var(--glass-border);background:var(--glass);color:var(--text);font-family:inherit;
+    padding:10px 17px;border-radius:12px;font-size:14px;font-weight:600;cursor:pointer;transition:.2s;backdrop-filter:blur(8px)}
+  .btn:hover{border-color:var(--accent);transform:translateY(-1px)}
+  .btn:disabled{opacity:.55;cursor:not-allowed;transform:none}
+  .btn.primary{background:var(--accent);border:none;color:var(--on-accent);box-shadow:0 6px 24px rgba(0,251,240,.28)}
+  .btn.primary:hover{background:#4ffdf5}
+  .btn.danger{border-color:rgba(255,90,90,.5);color:#ff8a8a}
+  .btn.danger:hover{background:rgba(255,90,90,.12)}
+  .btn.sm{padding:7px 12px;font-size:13px}
+
+  /* ====================== APP SHELL ====================== */
+  #app{display:flex;height:100dvh}
+
+  .sidebar{width:118px;flex:0 0 118px;display:flex;flex-direction:column;align-items:center;
+    padding:22px 10px;gap:8px;background:linear-gradient(180deg,rgba(10,10,53,.85),rgba(10,10,53,.55));
+    border-right:1px solid rgba(255,255,255,.06);backdrop-filter:blur(14px);z-index:10}
+  .sidebar .logo{width:38px;height:38px;border-radius:11px;margin-bottom:20px;
+    background:linear-gradient(135deg,var(--accent),var(--accent-2));box-shadow:0 0 24px rgba(0,251,240,.3)}
+  .nav-item{width:100%;display:flex;flex-direction:column;align-items:center;gap:6px;font-family:inherit;
+    padding:12px 4px;border-radius:14px;cursor:pointer;color:var(--muted);transition:.2s;border:1px solid transparent;background:none}
+  .nav-item:hover{color:var(--text);background:var(--glass);border-color:var(--glass-border)}
+  .nav-item.active{color:var(--text);background:var(--glass);border-color:rgba(0,251,240,.4)}
+  .nav-item svg{width:22px;height:22px}
+  .nav-item span{font-size:12.5px;font-weight:600;letter-spacing:.2px}
+  .nav-spacer{flex:1}
+  .nav-user{display:flex;flex-direction:column;align-items:center;gap:6px;color:var(--muted)}
+  .avatar{width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+    font-size:13px;font-weight:700;color:var(--on-accent);background:linear-gradient(135deg,var(--accent),var(--accent-2))}
+
+  .content{flex:1;display:flex;flex-direction:column;min-width:0;position:relative}
+  .topbar{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:24px clamp(20px,4vw,44px) 6px}
+  .topbar .title h1{font-size:13px;font-weight:700;letter-spacing:3px;color:var(--muted);text-transform:uppercase}
+  .topbar .title h2{font-size:28px;font-weight:700;margin-top:2px}
+  .topbar .status{font-size:14.5px;color:var(--muted);text-align:right}
+  .topbar .status .note{display:block;font-size:13px;color:#ffd27b;margin-top:2px}
+
+  .edit-banner{display:none;align-items:center;gap:10px;margin:8px clamp(20px,4vw,44px) 0;
+    background:rgba(0,251,240,.1);border:1px solid rgba(0,251,240,.32);
+    border-radius:14px;padding:12px 17px;font-size:14px;color:#bff7f4}
+  body.editing .edit-banner{display:flex}
+
+  .rail-wrap{flex:1;position:relative;display:flex;align-items:center;min-height:0}
+  /* Soft fades at the edges — the clearest signal that content continues. */
+  .rail-wrap::before,.rail-wrap::after{content:"";position:absolute;top:0;bottom:0;width:56px;
+    z-index:6;pointer-events:none;opacity:0;transition:opacity .25s ease}
+  .rail-wrap::before{left:0;background:linear-gradient(90deg,var(--bg),transparent)}
+  .rail-wrap::after{right:0;background:linear-gradient(270deg,var(--bg),transparent)}
+  .rail-wrap.more-left::before{opacity:.9}
+  .rail-wrap.more-right::after{opacity:.9}
+  .rail{display:flex;gap:22px;overflow-x:auto;overflow-y:hidden;width:100%;height:100%;
+    padding:18px clamp(20px,4vw,44px) 26px;scroll-snap-type:x proximity;scroll-behavior:smooth;align-items:center}
+  .rail::-webkit-scrollbar{height:8px}
+  .rail::-webkit-scrollbar-thumb{background:rgba(255,255,255,.12);border-radius:10px}
+  .rail::-webkit-scrollbar-track{background:transparent}
+
+  .card{flex:0 0 auto;width:clamp(240px,24vw,310px);height:min(68vh,470px);
+    position:relative;border-radius:20px;overflow:hidden;scroll-snap-align:start;cursor:pointer;
+    border:1px solid var(--glass-border);background:var(--card);text-align:left;color:inherit;font-family:inherit;
+    transition:transform .3s cubic-bezier(.2,.8,.2,1),box-shadow .3s,border-color .3s}
+  .card:hover{transform:translateY(-8px) scale(1.015);border-color:rgba(0,251,240,.5);
+    box-shadow:0 26px 60px rgba(0,0,0,.5),0 0 46px rgba(0,251,240,.16)}
+  .card:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+  .card .thumb{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+  .card .thumb.empty{display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:13px;
+    background:linear-gradient(135deg,rgba(0,251,240,.18),rgba(77,124,255,.28))}
+  .card .scrim{position:absolute;inset:0;background:
+    linear-gradient(180deg,rgba(3,3,40,.75) 0%,rgba(3,3,40,.18) 32%,rgba(3,3,40,0) 55%,rgba(3,3,40,.6) 100%)}
+  .card .label{position:absolute;top:20px;left:22px;right:22px}
+  .card .label .sub{font-size:13px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#9ff6f1;margin-bottom:5px}
+  .card .label h3{font-size:25px;font-weight:700;line-height:1.15;text-shadow:0 2px 12px rgba(0,0,0,.5)}
+  .card .cta{position:absolute;left:22px;right:18px;bottom:18px;z-index:2;
+    display:flex;align-items:center;justify-content:space-between;gap:10px}
+  .card .cta .lbl{font-size:14px;font-weight:600;letter-spacing:.3px;color:rgba(255,255,255,.9);
+    text-shadow:0 1px 8px rgba(0,0,0,.6)}
+  .card .cta .go{flex:0 0 auto;width:42px;height:42px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+    background:linear-gradient(135deg,var(--accent),var(--accent-2));
+    box-shadow:0 6px 22px rgba(0,251,240,.4);transition:transform .25s}
+  .card:hover .cta .go{transform:scale(1.14)}
+  .card .cta .go svg{width:20px;height:20px}
+  .lock-tag{position:absolute;top:16px;right:16px;font-size:12px;font-weight:600;z-index:2;
+    background:rgba(3,3,40,.75);border:1px solid var(--glass-border);padding:4px 9px;border-radius:20px;color:#ffd27b;backdrop-filter:blur(6px)}
+  .admin-tools{position:absolute;bottom:18px;left:22px;right:22px;display:none;gap:8px;z-index:3}
+  body.editing .admin-tools{display:flex}
+  body.editing .card{cursor:grab}
+  body.editing .card .cta{display:none}
+  .card.dragging{opacity:.45}
+
+  .rail-arrow{position:absolute;top:50%;transform:translateY(-50%);z-index:8;width:44px;height:44px;border-radius:50%;
+    display:flex;align-items:center;justify-content:center;cursor:pointer;border:1px solid var(--glass-border);
+    background:rgba(10,10,53,.7);color:var(--text);backdrop-filter:blur(8px);transition:.2s}
+  .rail-arrow:hover{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+  .rail-arrow.left{left:8px}.rail-arrow.right{right:8px}
+  .rail-arrow svg{width:22px;height:22px}
+  .rail-arrow.mini{display:none}   /* phone only — see the mobile block */
+  .rail-arrow[disabled]{opacity:.25;cursor:default}
+  .rail-arrow[disabled]:hover{background:rgba(10,10,53,.7);border-color:var(--glass-border);color:var(--text)}
+  /* Kept on touch devices on purpose: on a phone the arrows are the only
+     visible proof that there's more than one card. */
+  @media(hover:none){.rail-arrow{width:48px;height:48px}}
+
+  /* Position readout under the rail */
+  .rail-status{display:flex;align-items:center;gap:16px;padding:0 clamp(20px,4vw,44px) 18px}
+  .rail-progress{flex:1;height:6px;border-radius:99px;background:rgba(255,255,255,.10);overflow:hidden}
+  .rail-progress span{display:block;height:100%;width:0;border-radius:99px;
+    background:linear-gradient(90deg,var(--accent),var(--accent-2));transition:width .18s linear}
+  .rail-count{font-size:14px;color:var(--muted);font-weight:600;white-space:nowrap}
+
+  .rail-msg{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;
+    color:var(--muted);width:100%;text-align:center;padding:24px;font-size:15px;line-height:1.6}
+  .rail-msg strong{display:block;color:var(--text);font-size:19px;font-weight:600;margin-bottom:4px;font-family:var(--font-display)}
+
+  /* ====================== EXPANDED DETAIL ====================== */
+  .detail-overlay{position:fixed;inset:0;z-index:60;display:none;align-items:center;justify-content:center;
+    padding:24px;background:rgba(2,2,20,.8);backdrop-filter:blur(12px)}
+  .detail-overlay.show{display:flex}
+  .detail{position:relative;width:min(860px,95vw);height:min(520px,86vh);
+    border-radius:24px;overflow:hidden;background:var(--panel);border:1px solid var(--glass-border);
+    display:flex;box-shadow:0 40px 100px rgba(0,0,0,.6);animation:pop .34s cubic-bezier(.2,.9,.25,1)}
+  @keyframes pop{from{transform:scale(.94);opacity:0}to{transform:scale(1);opacity:1}}
+  .detail .media{position:relative;flex:0 0 42%;min-width:0;background:#0c0c3c}
+  .detail .media #d_hero{position:absolute;inset:0}
+  .detail .media img{width:100%;height:100%;object-fit:cover;display:block}
+  .detail .media .empty{width:100%;height:100%;display:flex;align-items:center;justify-content:center;
+    color:var(--muted);font-size:13px;background:linear-gradient(135deg,rgba(0,251,240,.2),rgba(77,124,255,.3))}
+  .detail .media::after{content:"";position:absolute;inset:0;pointer-events:none;
+    background:linear-gradient(90deg,rgba(10,10,53,0) 72%,rgba(10,10,53,.55) 100%)}
+  .detail .info{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;padding:32px clamp(24px,3vw,36px)}
+  .detail .info .scroll{flex:1 1 auto;min-height:0;overflow-y:auto}
+  .detail .info .sub{font-size:13px;font-weight:700;letter-spacing:1.4px;text-transform:uppercase;color:var(--accent);margin-bottom:10px}
+  .detail .info h2{font-size:30px;font-weight:800;line-height:1.12;margin-bottom:16px}
+  .detail .info p{font-size:16.5px;line-height:1.75;color:#c4cdec;white-space:pre-wrap;max-width:66ch}
+  .detail .info .foot{flex:0 0 auto;padding-top:20px}
+  .detail .info .open{display:inline-flex;padding:15px 30px;font-size:16px;text-decoration:none}
+  .detail .close{position:absolute;top:14px;right:14px;width:38px;height:38px;border-radius:50%;
+    background:rgba(3,3,40,.65);border:1px solid var(--glass-border);color:#fff;cursor:pointer;font-size:17px;
+    display:flex;align-items:center;justify-content:center;backdrop-filter:blur(6px);z-index:3}
+  .detail .close:hover{background:rgba(255,90,90,.25)}
+  @media(max-width:640px){
+    .detail{flex-direction:column;height:min(86vh,640px)}
+    .detail .media{flex:0 0 190px}
+    .detail .media::after{background:linear-gradient(180deg,rgba(10,10,53,0) 60%,rgba(10,10,53,.6) 100%)}
+  }
+
+  /* ====================== ADD/EDIT MODAL ====================== */
+  .overlay{position:fixed;inset:0;z-index:70;background:rgba(2,2,20,.74);backdrop-filter:blur(6px);
+    display:none;align-items:flex-start;justify-content:center;padding:40px 20px;overflow-y:auto}
+  .overlay.show{display:flex}
+  .modal{width:100%;max-width:520px;background:var(--panel);border:1px solid var(--glass-border);border-radius:22px;padding:28px}
+  .modal h2{font-size:20px;margin-bottom:18px}
+  .row{display:flex;gap:12px}.row>*{flex:1}
+  .toggle{display:flex;align-items:center;gap:10px;margin:6px 0 14px;font-size:14px;cursor:pointer}
+  .toggle input{width:auto;margin:0}
+  .access-list{max-height:200px;overflow-y:auto;border:1px solid var(--glass-border);border-radius:12px;padding:10px;margin-bottom:6px}
+  .access-list label{display:flex;align-items:center;gap:8px;color:var(--text);margin-bottom:10px;cursor:pointer;font-size:15px;font-weight:400}
+  .access-list input{width:auto;margin:0}
+  .hint{font-size:13px;color:var(--muted);margin-bottom:14px;min-height:16px}
+  .hint.warn{color:#ffd27b}
+  .modal-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:8px}
+  .thumb-preview{width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:12px;margin-bottom:12px;display:none}
+
+  /* ====================== PHONE ======================
+     Not a squeezed desktop. The side rail becomes a bottom bar so the
+     content gets the full width back, the header collapses to one line,
+     and the arrows move off the artwork into the control strip. */
+  @media(max-width:720px){
+    /* nav to the bottom, thumb-reachable */
+    #app{flex-direction:column-reverse}
+    .sidebar{width:auto;flex:0 0 auto;flex-direction:row;align-items:stretch;
+      justify-content:space-around;gap:2px;padding:6px 4px 10px;
+      border-right:none;border-top:1px solid rgba(255,255,255,.09)}
+    .sidebar .logo,.nav-spacer,.avatar{display:none}
+    .nav-user{display:contents}   /* let Sign out sit in the row with the rest */
+    .nav-item{flex:1;padding:8px 2px;gap:4px;border-radius:12px}
+    .nav-item svg{width:23px;height:23px}
+    .nav-item span{font-size:11.5px}
+
+    /* header: one line, and the email truncates instead of running off */
+    .topbar{padding:14px 18px 2px;gap:12px;align-items:flex-start}
+    .topbar .title{min-width:0}
+    .topbar .title h1{display:none}
+    .topbar .title h2{font-size:21px;margin-top:0}
+    .topbar .status{font-size:13px;max-width:46%;min-width:0;
+      overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .topbar .status .note{white-space:normal;font-size:12px}
+
+    .edit-banner{margin:8px 18px 0;padding:10px 14px;font-size:13px}
+
+    /* % of the rail, not vw — vw includes the nav and clipped the card */
+    .rail{padding:14px 18px 16px;gap:16px}
+    .card{width:82%;height:min(58vh,430px)}
+
+    /* arrows out of the artwork, into the strip with the counter */
+    .rail-wrap>.rail-arrow{display:none}
+    .rail-wrap::before,.rail-wrap::after{width:34px}
+    .rail-status{gap:12px;padding:0 18px 12px}
+    .rail-arrow.mini{display:flex;position:static;transform:none;
+      width:46px;height:46px;flex:0 0 auto}
+    .rail-count{font-size:13px}
+
+    .detail-overlay{padding:14px}
+    .overlay{padding:20px 14px}
+    .modal{padding:22px 18px}
+  }
+
+  @media(prefers-reduced-motion:reduce){
+    *,*::before,*::after{animation-duration:.001ms!important;animation-iteration-count:1!important;
+      transition-duration:.001ms!important;scroll-behavior:auto!important}
+    .card:hover{transform:none}
+  }
+</style>
+</head>
+<body>
+<div class="nebula" aria-hidden="true"><div class="blob b1"></div><div class="blob b2"></div></div>
+
+<!-- BOOT -->
+<div id="boot">
+  <div class="mark" aria-hidden="true"></div>
+  <div class="msg" role="status">Loading your resources…</div>
+</div>
+
+<!-- LOGIN -->
+<div id="login" class="login-wrap hidden">
+  <div class="login-card">
+    <div class="mark" aria-hidden="true"></div>
+    <h2>Elevate Hub</h2>
+    <p>Sign in with the account set up for you</p>
+    <div id="loginHelp" class="err" style="color:var(--muted);margin:0 0 18px"></div>
+    <label for="email">Email</label>
+    <input id="email" type="email" autocomplete="username" placeholder="you@elevate.com">
+    <label for="password">Password</label>
+    <div class="pw-wrap">
+      <input id="password" type="password" autocomplete="current-password" placeholder="Your password">
+      <button type="button" class="pw-toggle" id="pwToggle"
+              onclick="togglePassword('password','pwToggle')">Show</button>
+    </div>
+    <button class="btn primary" id="signInBtn" style="width:100%;margin-top:6px" onclick="signIn()">Sign in</button>
+    <div id="loginErr" class="err" role="alert"></div>
+    <div id="loginOk" class="ok" role="status"></div>
+    <button class="linkbtn" onclick="sendReset()">Forgot your password?</button>
+  </div>
+</div>
+
+<!-- SET NEW PASSWORD (after clicking the emailed recovery link) -->
+<div id="recovery" class="login-wrap hidden">
+  <div class="login-card">
+    <div class="mark" aria-hidden="true"></div>
+    <h2>Set a new password</h2>
+    <p>Pick something you haven't used here before</p>
+    <label for="newPass">New password</label>
+    <div class="pw-wrap">
+      <input id="newPass" type="password" autocomplete="new-password" placeholder="At least 10 characters">
+      <button type="button" class="pw-toggle" id="newPassToggle"
+              onclick="togglePassword('newPass','newPassToggle')">Show</button>
+    </div>
+    <label for="newPass2">Confirm password</label>
+    <input id="newPass2" type="password" autocomplete="new-password" placeholder="Type it again">
+    <button class="btn primary" id="savePassBtn" style="width:100%;margin-top:6px" onclick="saveNewPassword()">Save password</button>
+    <div id="recoveryErr" class="err" role="alert"></div>
+  </div>
+</div>
+
+<!-- APP -->
+<div id="app" class="hidden">
+  <aside class="sidebar">
+    <div class="logo" aria-hidden="true"></div>
+    <button id="navLibrary" class="nav-item active" onclick="showLibrary()" title="Library">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+      <span>Library</span>
+    </button>
+    <button id="navAdd" class="nav-item hidden" onclick="openModal()" title="Add card">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      <span>Add</span>
+    </button>
+    <button id="navEdit" class="nav-item hidden" onclick="toggleEdit()" title="Edit mode">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+      <span id="navEditLabel">Edit</span>
+    </button>
+    <div class="nav-spacer"></div>
+    <div class="nav-user">
+      <div class="avatar" id="avatar" aria-hidden="true"></div>
+      <button class="nav-item" onclick="signOut()" title="Sign out" style="padding-top:8px">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        <span>Sign out</span>
+      </button>
+    </div>
+  </aside>
+
+  <div class="content">
+    <div class="topbar">
+      <div class="title"><h1>Elevate Hub</h1><h2>Resource Library</h2></div>
+      <div class="status" id="who"></div>
+    </div>
+    <div class="edit-banner">Edit mode — drag cards to reorder, or use the buttons on each card.</div>
+
+    <div class="rail-wrap">
+      <button class="rail-arrow left" id="railLeft" onclick="scrollRail(-1)" aria-label="Show previous cards"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="15 18 9 12 15 6"/></svg></button>
+      <div id="rail" class="rail"></div>
+      <button class="rail-arrow right" id="railRight" onclick="scrollRail(1)" aria-label="Show more cards"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg></button>
+      <div id="railMsg" class="rail-msg hidden"></div>
+    </div>
+    <div id="railStatus" class="rail-status hidden">
+      <button class="rail-arrow left mini" onclick="scrollRail(-1)" aria-label="Show previous cards"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="15 18 9 12 15 6"/></svg></button>
+      <div class="rail-progress"><span id="railProgressBar"></span></div>
+      <div class="rail-count" id="railCount" role="status"></div>
+      <button class="rail-arrow right mini" onclick="scrollRail(1)" aria-label="Show more cards"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg></button>
+    </div>
+  </div>
+</div>
+
+<!-- EXPANDED DETAIL -->
+<div id="detailOverlay" class="detail-overlay" role="dialog" aria-modal="true" aria-labelledby="d_title" onclick="if(event.target===this)closeDetail()">
+  <div class="detail">
+    <div class="media"><div id="d_hero"></div></div>
+    <button class="close" id="detailClose" onclick="closeDetail()" aria-label="Close">✕</button>
+    <div class="info">
+      <div class="scroll">
+        <div id="d_sub" class="sub"></div>
+        <h2 id="d_title"></h2>
+        <p id="d_desc"></p>
+      </div>
+      <div class="foot"><a id="d_link" class="btn primary open" target="_blank" rel="noopener noreferrer"></a></div>
+    </div>
+  </div>
+</div>
+
+<!-- ADD/EDIT MODAL -->
+<div id="overlay" class="overlay" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+  <div class="modal">
+    <h2 id="modalTitle">Add card</h2>
+    <input type="hidden" id="cardId">
+    <label for="f_title">Title</label><input id="f_title" placeholder="Elevate Academy">
+    <label for="f_subtitle">Subtitle</label><input id="f_subtitle" placeholder="Training &amp; Certification">
+    <label for="f_description">Description</label><textarea id="f_description" rows="3" placeholder="Shown when the card is expanded"></textarea>
+    <div class="row">
+      <div><label for="f_link">Link URL</label><input id="f_link" placeholder="https://..."></div>
+      <div><label for="f_button">Button label</label><input id="f_button" placeholder="Open"></div>
+    </div>
+    <label for="f_thumb">Thumbnail — PNG, JPG, WebP or GIF, 5 MB max</label>
+    <img id="thumbPreview" class="thumb-preview" alt="">
+    <input id="f_thumb" type="file" accept="image/png,image/jpeg,image/webp,image/gif">
+    <label class="toggle"><input type="checkbox" id="f_visall" onchange="toggleAccessList()"> Visible to all agents</label>
+    <div id="accessWrap">
+      <label>Or pick who can see it</label>
+      <div id="accessList" class="access-list"></div>
+      <div id="accessHint" class="hint"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">Cancel</button>
+      <button class="btn primary" id="saveBtn" onclick="saveCard()">Save</button>
+    </div>
+    <div id="modalErr" class="err" role="alert"></div>
+  </div>
+</div>
+
+<script>
+/* Clickjacking guard — meta CSP can't carry frame-ancestors. */
+if (window.top !== window.self) { window.top.location = window.self.location; }
+
+let sb, me=null, isAdmin=false, agents=[], sortable=null,
+    cardsById={}, accessById={}, signedThumbs={},
+    lastFocus=null, signingIn=false, recovering=false, idleTimer=null;
+
+/* ---- helpers ---- */
+function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));}
+
+function safeUrl(u){
+  const s=String(u??'').trim();
+  if(!s) return '';
+  try{
+    const p=new URL(s, location.href);
+    return ['http:','https:','mailto:'].includes(p.protocol) ? p.href : '';
+  }catch{ return ''; }
+}
+
+function thumbPath(url){
+  const m=String(url||'').match(/\/storage\/v1\/object\/(?:public|sign)\/thumbnails\/(.+)$/);
+  return m ? decodeURIComponent(m[1].split('?')[0]) : null;
+}
+
+// Log the real error, show the user something that doesn't leak schema,
+// policy names or column names.
+function friendlyError(e, fallback){
+  console.error(e);
+  const msg=String(e?.message||'');
+  if(/Invalid login credentials/i.test(msg)) return 'That email or password isn\u2019t right.';
+  if(/Email not confirmed/i.test(msg))       return 'This account hasn\u2019t been confirmed yet. Ask your admin.';
+  if(/rate limit|too many/i.test(msg))       return 'Too many tries. Wait a minute and try again.';
+  if(/Password should be/i.test(msg))        return 'That password is too short. Use at least 10 characters.';
+  if(/Failed to fetch|NetworkError/i.test(msg)) return 'Couldn\u2019t reach the server. Check your connection.';
+  return fallback || 'Something went wrong. Try again, or let Gage know if it keeps happening.';
+}
+
+// Real image sniffing — file.type is client-supplied and trivially faked.
+async function looksLikeImage(file){
+  const buf=new Uint8Array(await file.slice(0,12).arrayBuffer());
+  const is=(...b)=>b.every((v,i)=>v===null||buf[i]===v);
+  if(is(0x89,0x50,0x4E,0x47,0x0D,0x0A,0x1A,0x0A)) return true;               // PNG
+  if(is(0xFF,0xD8,0xFF)) return true;                                        // JPEG
+  if(is(0x47,0x49,0x46,0x38)) return true;                                   // GIF
+  if(is(0x52,0x49,0x46,0x46) &&
+     buf[8]===0x57 && buf[9]===0x45 && buf[10]===0x42 && buf[11]===0x50) return true; // WEBP
+  return false;
+}
+
+async function validateImage(file){
+  if(!ALLOWED_IMAGE_TYPES.includes(file.type))
+    return 'Use a PNG, JPG, WebP or GIF. SVG files aren\u2019t allowed.';
+  if(file.size>MAX_THUMB_BYTES)
+    return `That image is ${(file.size/1048576).toFixed(1)} MB. Keep thumbnails under 5 MB.`;
+  if(!(await looksLikeImage(file)))
+    return 'That file isn\u2019t a real image. Re-export it and try again.';
+  return null;
+}
+
+function railMessage(html){
+  const msg=document.getElementById('railMsg'), rail=document.getElementById('rail');
+  const status=document.getElementById('railStatus');
+  if(html){ msg.innerHTML=html; msg.classList.remove('hidden'); rail.classList.add('hidden'); status.classList.add('hidden'); }
+  else{ msg.classList.add('hidden'); msg.innerHTML=''; rail.classList.remove('hidden'); }
+}
+
+/* ---- boot screen ----
+   BOOT_MIN_MS stops the splash itself from flickering: on a warm cache the
+   session check can finish in 30ms, and a logo that appears and vanishes that
+   fast reads as a glitch too. */
+const BOOT_MIN_MS=450;
+const bootStart=Date.now();
+let bootDone=false;
+function hideBoot(){
+  if(bootDone) return;
+  bootDone=true;
+  const b=document.getElementById('boot');
+  const wait=Math.max(0, BOOT_MIN_MS-(Date.now()-bootStart));
+  setTimeout(()=>{
+    b.classList.add('fade');
+    setTimeout(()=>b.classList.add('hidden'), 400);
+  }, wait);
+}
+
+function showLoginScreen(message){
+  document.getElementById('app').classList.add('hidden');
+  document.getElementById('recovery').classList.add('hidden');
+  document.getElementById('login').classList.remove('hidden');
+  document.getElementById('loginErr').textContent=message||'';
+  document.getElementById('loginOk').textContent='';
+  document.body.classList.remove('editing');
+  hideBoot();
+  const em=document.getElementById('email');
+  if(!em.value) em.focus();   // iOS ignores this without a gesture; harmless there
+}
+
+/* ---- idle timeout: shared machines shouldn't stay signed in forever ---- */
+function resetIdleTimer(){
+  clearTimeout(idleTimer);
+  if(!me) return;
+  idleTimer=setTimeout(async()=>{
+    await sb.auth.signOut();
+    me=null; isAdmin=false;
+    showLoginScreen('Signed out after a long idle period. Sign in again.');
+  }, IDLE_TIMEOUT_MS);
+}
+['pointerdown','keydown','visibilitychange'].forEach(ev=>
+  window.addEventListener(ev,()=>{ if(me) resetIdleTimer(); },{passive:true}));
+
+/* ---- boot ---- */
+function init(){
+  document.getElementById('loginHelp').textContent=`No account yet? Ask ${SUPPORT_CONTACT} to set one up for you.`;
+  if(!window.supabase){
+    showLoginScreen('Couldn\u2019t load the app libraries. Reload the page.');
+    return;
+  }
+  sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  // If the network stalls, don't leave someone staring at a pulsing logo.
+  setTimeout(()=>{
+    if(!bootDone) showLoginScreen('That took longer than expected. Sign in to continue.');
+  }, 10000);
+
+  sb.auth.onAuthStateChange((event, session)=>{
+    if(event==='PASSWORD_RECOVERY'){ showRecovery(); return; }
+    if(!session && me && !recovering){
+      me=null; isAdmin=false;
+      showLoginScreen('Your session expired. Sign in again.');
+    }
+  });
+
+  sb.auth.getSession().then(async ({data})=>{
+    if(recovering) return;                       // showRecovery handles the boot screen
+    if(data.session) await onLoggedIn();         // hides boot once the rail is populated
+    else showLoginScreen('');
+  }).catch(e=>{
+    showLoginScreen(friendlyError(e,'Couldn\u2019t reach the server. Check your connection.'));
+  });
+}
+
+async function signIn(){
+  if(signingIn) return;
+  const email=document.getElementById('email').value.trim();
+  const password=document.getElementById('password').value;
+  const err=document.getElementById('loginErr'); err.textContent='';
+  document.getElementById('loginOk').textContent='';
+  const btn=document.getElementById('signInBtn');
+  if(!email||!password){ err.textContent='Enter your email and password.'; return; }
+  signingIn=true; btn.disabled=true; btn.textContent='Signing in\u2026';
+  try{
+    const {error}=await sb.auth.signInWithPassword({email,password});
+    if(error){ err.textContent=friendlyError(error,'Couldn\u2019t sign you in.'); return; }
+    await onLoggedIn();
+  }catch(e){
+    err.textContent=friendlyError(e,'Couldn\u2019t sign you in.');
+  }finally{
+    signingIn=false; btn.disabled=false; btn.textContent='Sign in';
+  }
+}
+
+async function signOut(){ await sb.auth.signOut(); location.reload(); }
+
+function togglePassword(fieldId, btnId){
+  const f=document.getElementById(fieldId), b=document.getElementById(btnId);
+  const reveal = f.type==='password';
+  f.type = reveal ? 'text' : 'password';
+  b.textContent = reveal ? 'Hide' : 'Show';
+  b.setAttribute('aria-label', reveal ? 'Hide password' : 'Show password');
+  f.focus();
+}
+
+/* ---- password reset ---- */
+async function sendReset(){
+  const email=document.getElementById('email').value.trim();
+  const err=document.getElementById('loginErr'); const ok=document.getElementById('loginOk');
+  err.textContent=''; ok.textContent='';
+  if(!email){ err.textContent='Enter your email above first, then tap this.'; return; }
+  try{
+    await sb.auth.resetPasswordForEmail(email,{redirectTo:location.origin+location.pathname});
+  }catch(e){ console.error(e); }
+  // Always the same message — don't confirm which emails have accounts.
+  ok.textContent='If that email has an account, a reset link is on its way.';
+}
+function showRecovery(){
+  recovering=true;
+  document.getElementById('login').classList.add('hidden');
+  document.getElementById('app').classList.add('hidden');
+  document.getElementById('recovery').classList.remove('hidden');
+  hideBoot();
+  document.getElementById('newPass').focus();
+}
+async function saveNewPassword(){
+  const p1=document.getElementById('newPass').value;
+  const p2=document.getElementById('newPass2').value;
+  const err=document.getElementById('recoveryErr'); err.textContent='';
+  const btn=document.getElementById('savePassBtn');
+  if(p1.length<10){ err.textContent='Use at least 10 characters.'; return; }
+  if(p1!==p2){ err.textContent='Those two passwords don\u2019t match.'; return; }
+  btn.disabled=true; btn.textContent='Saving\u2026';
+  try{
+    const {error}=await sb.auth.updateUser({password:p1});
+    if(error){ err.textContent=friendlyError(error,'Couldn\u2019t update your password.'); return; }
+    recovering=false;
+    history.replaceState(null,'',location.pathname);
+    await onLoggedIn();
+  }catch(e){
+    err.textContent=friendlyError(e,'Couldn\u2019t update your password.');
+  }finally{ btn.disabled=false; btn.textContent='Save password'; }
+}
+
+/* ---- session ---- */
+async function onLoggedIn(){
+  const {data:{user}}=await sb.auth.getUser();
+  if(!user){ showLoginScreen('Sign in to continue.'); return; }
+
+  const {data:profile, error:profErr}=await sb.from('profiles').select('*').eq('id',user.id).maybeSingle();
+  if(profErr) console.error(profErr);
+
+  me={...user, ...(profile||{})};
+  isAdmin = !!profile && profile.role==='admin';
+  const name = profile?.full_name || user.email;
+
+  document.getElementById('login').classList.add('hidden');
+  document.getElementById('recovery').classList.add('hidden');
+  document.getElementById('app').classList.remove('hidden');
+  document.getElementById('who').innerHTML =
+    esc(name) + (isAdmin?' \u00b7 Admin':'') +
+    (profile ? '' : '<span class="note">Profile not set up yet \u2014 showing shared resources only.</span>');
+  document.getElementById('avatar').textContent = (name||'?').trim().charAt(0).toUpperCase();
+
+  if(isAdmin){
+    document.getElementById('navAdd').classList.remove('hidden');
+    document.getElementById('navEdit').classList.remove('hidden');
+    const {data}=await sb.from('profiles').select('id,full_name').eq('role','agent').order('full_name');
+    agents=data||[];
+  }
+  resetIdleTimer();
+  await loadCards();
+  hideBoot();
+}
+
+/* ---- thumbnails ----
+   Signed URLs work whether the bucket is public or private, so flipping the
+   bucket to private is a dashboard change with no code change. */
+async function signThumbnails(cards){
+  signedThumbs={};
+  const pairs=cards.map(c=>[c.id,thumbPath(c.thumbnail_url)]).filter(([,p])=>p);
+  if(!pairs.length) return;
+  try{
+    const {data,error}=await sb.storage.from('thumbnails')
+      .createSignedUrls(pairs.map(([,p])=>p), SIGNED_URL_TTL);
+    if(error) throw error;
+    (data||[]).forEach((row,i)=>{ if(row?.signedUrl) signedThumbs[pairs[i][0]]=row.signedUrl; });
+  }catch(e){
+    console.error(e); // fall back to whatever is stored
+  }
+}
+function thumbFor(c){
+  return safeUrl(signedThumbs[c.id] || c.thumbnail_url);
+}
+
+/* ---- cards ---- */
+async function loadCards(){
+  const {data:cards,error}=await sb.from('cards').select('*').order('sort_order');
+  if(error){
+    railMessage('<div><strong>Couldn\u2019t load your resources</strong>'+
+                esc(friendlyError(error,'Something went wrong on our end.'))+'</div>'+
+                '<button class="btn primary" onclick="loadCards()">Try again</button>');
+    return;
+  }
+
+  cardsById={}; cards.forEach(c=>cardsById[c.id]=c);
+
+  accessById={};
+  if(isAdmin){
+    const {data:acc,error:accErr}=await sb.from('card_access').select('card_id,user_id');
+    if(accErr) console.error(accErr);
+    (acc||[]).forEach(a=>{(accessById[a.card_id]=accessById[a.card_id]||[]).push(a.user_id);});
+  }
+
+  await signThumbnails(cards);
+
+  const rail=document.getElementById('rail');
+  rail.innerHTML='';
+
+  if(!cards.length){
+    railMessage(isAdmin
+      ? '<div><strong>No resources yet</strong>Add your first card to get started.</div><button class="btn primary" onclick="openModal()">Add a card</button>'
+      : `<div><strong>Nothing here yet</strong>Anything shared with you shows up on this page. If you were expecting something, check with ${esc(SUPPORT_CONTACT)}.</div>`);
+    return;
+  }
+  railMessage('');
+
+  cards.forEach(c=>{
+    const el=document.createElement('button');
+    el.type='button';
+    el.className='card'; el.dataset.id=c.id;
+    el.setAttribute('aria-label', `${c.title||'Resource'}${c.subtitle?' — '+c.subtitle:''}`);
+    const thumb=thumbFor(c);
+    el.innerHTML=`
+      ${isAdmin && !c.visible_to_all ? '<span class="lock-tag">Restricted</span>':''}
+      ${thumb ? `<img class="thumb" src="${esc(thumb)}" alt="" loading="lazy" decoding="async">` : `<div class="thumb empty">No image</div>`}
+      <div class="scrim"></div>
+      <div class="label">
+        ${c.subtitle?`<div class="sub">${esc(c.subtitle)}</div>`:''}
+        <h3>${esc(c.title)}</h3>
+      </div>
+      <div class="cta">
+        <span class="lbl">View details</span>
+        <span class="go"><svg viewBox="0 0 24 24" fill="none" stroke="#03102b" stroke-width="2.4" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg></span>
+      </div>
+      <div class="admin-tools">
+        <button class="btn sm" type="button">Edit</button>
+        <button class="btn sm danger" type="button">Delete</button>
+      </div>`;
+    const [editBtn,delBtn]=el.querySelectorAll('.admin-tools .btn');
+    if(editBtn) editBtn.onclick=(e)=>{e.stopPropagation();editCard(c);};
+    if(delBtn) delBtn.onclick=(e)=>{e.stopPropagation();deleteCard(c.id);};
+    el.addEventListener('click',()=>{ if(!document.body.classList.contains('editing')) openDetail(c.id); });
+    rail.appendChild(el);
+  });
+
+  if(isAdmin) setupSort();
+  updateRailCues();
+}
+
+function setupSort(){
+  if(!window.Sortable) return;
+  if(sortable) sortable.destroy();
+  sortable=Sortable.create(document.getElementById('rail'),{
+    animation:180, disabled:!document.body.classList.contains('editing'),
+    ghostClass:'dragging', onEnd:persistOrder
+  });
+}
+
+async function persistOrder(){
+  const ids=[...document.querySelectorAll('#rail .card')].map(el=>el.dataset.id);
+  const changed=ids.map((id,i)=>({id,i})).filter(({id,i})=>cardsById[id] && cardsById[id].sort_order!==i);
+  if(!changed.length) return;
+  const results=await Promise.all(changed.map(({id,i})=>sb.from('cards').update({sort_order:i}).eq('id',id)));
+  const failed=results.find(r=>r.error);
+  if(failed){
+    alert(friendlyError(failed.error,'Couldn\u2019t save the new order.')+' Reloading the current order.');
+    loadCards();
+    return;
+  }
+  changed.forEach(({id,i})=>{ cardsById[id].sort_order=i; });
+}
+
+function toggleEdit(){
+  const editing=document.body.classList.toggle('editing');
+  document.getElementById('navEdit').classList.toggle('active',editing);
+  document.getElementById('navEditLabel').textContent=editing?'Done':'Edit';
+  if(sortable) sortable.option('disabled',!editing);
+}
+function showLibrary(){
+  closeDetail(); closeModal();
+  document.getElementById('rail').scrollTo({left:0,behavior:'smooth'});
+}
+function scrollRail(dir){
+  const rail=document.getElementById('rail');
+  rail.scrollBy({left:dir*(rail.clientWidth*0.7),behavior:'smooth'});
+}
+
+/* Keeps the arrows, edge fades, progress bar and "3 of 12" readout in sync
+   with where you actually are in the rail. Runs on scroll, on resize, and
+   after every reload of the cards. */
+function updateRailCues(){
+  const rail=document.getElementById('rail');
+  const wrap=rail.closest('.rail-wrap');
+  const status=document.getElementById('railStatus');
+  const bar=document.getElementById('railProgressBar');
+  const count=document.getElementById('railCount');
+  const lefts=[...document.querySelectorAll('.rail-arrow.left')];
+  const rights=[...document.querySelectorAll('.rail-arrow.right')];
+  const cards=[...rail.querySelectorAll('.card')];
+  const max=rail.scrollWidth-rail.clientWidth;
+
+  // Everything already fits, or there's nothing to show: no cues needed.
+  if(!cards.length || max<8 || rail.classList.contains('hidden')){
+    status.classList.add('hidden');
+    wrap.classList.remove('more-left','more-right');
+    [...lefts,...rights].forEach(b=>b.classList.add('hidden'));
+    return;
+  }
+
+  status.classList.remove('hidden');
+  [...lefts,...rights].forEach(b=>b.classList.remove('hidden'));
+
+  const x=rail.scrollLeft;
+  bar.style.width=Math.min(100,Math.max(0,(x/max)*100))+'%';
+
+  const idx=cards.findIndex(c=>c.offsetLeft+c.offsetWidth > x+12);
+  count.textContent=`${idx<0?cards.length:idx+1} of ${cards.length}`;
+
+  wrap.classList.toggle('more-left', x>8);
+  wrap.classList.toggle('more-right', x<max-8);
+  lefts.forEach(b=>b.disabled = x<=8);
+  rights.forEach(b=>b.disabled = x>=max-8);
+}
+
+document.getElementById('rail').addEventListener('scroll',updateRailCues,{passive:true});
+window.addEventListener('resize',updateRailCues);
+
+/* ---- expanded detail ---- */
+function openDetail(id){
+  const c=cardsById[id]; if(!c) return;
+  lastFocus=document.activeElement;
+  const hero=thumbFor(c);
+  document.getElementById('d_hero').innerHTML = hero
+    ? `<img src="${esc(hero)}" alt="" decoding="async">` : `<div class="empty">No image</div>`;
+  document.getElementById('d_sub').textContent=c.subtitle||'';
+  document.getElementById('d_sub').style.display=c.subtitle?'block':'none';
+  document.getElementById('d_title').textContent=c.title;
+  document.getElementById('d_desc').textContent=c.description||'';
+  document.getElementById('d_desc').style.display=c.description?'block':'none';
+
+  const link=document.getElementById('d_link');
+  const href=safeUrl(c.link_url);
+  link.textContent=c.button_label||'Open';
+  if(href){ link.href=href; link.classList.remove('hidden'); }
+  else{ link.removeAttribute('href'); link.classList.add('hidden'); }
+
+  document.getElementById('detailOverlay').classList.add('show');
+  document.getElementById('detailClose').focus();
+}
+function closeDetail(){
+  const o=document.getElementById('detailOverlay');
+  if(!o.classList.contains('show')) return;
+  o.classList.remove('show');
+  if(lastFocus && document.contains(lastFocus)) lastFocus.focus();
+}
+
+/* ---- add/edit modal ---- */
+function resetModalFields(){
+  ['cardId','f_title','f_subtitle','f_description','f_link','f_button','f_thumb'].forEach(id=>document.getElementById(id).value='');
+  const p=document.getElementById('thumbPreview');
+  p.style.display='none'; p.removeAttribute('src');
+  document.getElementById('f_visall').checked=false;
+  document.getElementById('modalErr').textContent='';
+}
+function showModal(){
+  lastFocus=document.activeElement;
+  document.getElementById('overlay').classList.add('show');
+  document.getElementById('f_title').focus();
+}
+function openModal(){
+  resetModalFields();
+  document.getElementById('modalTitle').textContent='Add card';
+  buildAccessList([]); toggleAccessList();
+  showModal();
+}
+function editCard(c){
+  resetModalFields();
+  document.getElementById('modalTitle').textContent='Edit card';
+  document.getElementById('cardId').value=c.id;
+  document.getElementById('f_title').value=c.title||'';
+  document.getElementById('f_subtitle').value=c.subtitle||'';
+  document.getElementById('f_description').value=c.description||'';
+  document.getElementById('f_link').value=c.link_url||'';
+  document.getElementById('f_button').value=c.button_label||'';
+  document.getElementById('f_visall').checked=!!c.visible_to_all;
+  const thumb=thumbFor(c);
+  if(thumb){const p=document.getElementById('thumbPreview');p.src=thumb;p.style.display='block';}
+  buildAccessList(accessById[c.id]||[]); toggleAccessList();
+  showModal();
+}
+function buildAccessList(checkedIds){
+  const list=document.getElementById('accessList');
+  list.innerHTML=agents.length?'':'<span style="color:var(--muted);font-size:13px">No agents yet.</span>';
+  agents.forEach(a=>{
+    list.insertAdjacentHTML('beforeend',
+      `<label><input type="checkbox" value="${esc(a.id)}" onchange="updateAccessHint()" ${checkedIds.includes(a.id)?'checked':''}> ${esc(a.full_name||'(no name)')}</label>`);
+  });
+  updateAccessHint();
+}
+function updateAccessHint(){
+  const hint=document.getElementById('accessHint');
+  if(document.getElementById('f_visall').checked){ hint.textContent=''; hint.classList.remove('warn'); return; }
+  const n=document.querySelectorAll('#accessList input:checked').length;
+  if(n===0){ hint.textContent='Nobody is selected — this card will be hidden from every agent.'; hint.classList.add('warn'); }
+  else{ hint.textContent=n===1?'Visible to 1 agent.':`Visible to ${n} agents.`; hint.classList.remove('warn'); }
+}
+function toggleAccessList(){
+  document.getElementById('accessWrap').style.display=document.getElementById('f_visall').checked?'none':'block';
+  updateAccessHint();
+}
+function closeModal(){
+  const o=document.getElementById('overlay');
+  if(!o.classList.contains('show')) return;
+  o.classList.remove('show');
+  if(lastFocus && document.contains(lastFocus)) lastFocus.focus();
+}
+
+async function saveCard(){
+  const err=document.getElementById('modalErr'); err.textContent='';
+  const id=document.getElementById('cardId').value;
+  const title=document.getElementById('f_title').value.trim();
+  const rawLink=document.getElementById('f_link').value.trim();
+  if(!title||!rawLink){ err.textContent='Title and link are required.'; return; }
+
+  const link=safeUrl(rawLink);
+  if(!link){ err.textContent='That link isn\u2019t valid. Use a full https:// address.'; return; }
+
+  const file=document.getElementById('f_thumb').files[0];
+  if(file){
+    const problem=await validateImage(file);
+    if(problem){ err.textContent=problem; return; }
+  }
+
+  const saveBtn=document.getElementById('saveBtn'); saveBtn.disabled=true; saveBtn.textContent='Saving\u2026';
+  let uploadedPath=null;
+  try{
+    let thumbUrl;
+    if(file){
+      uploadedPath=`${crypto.randomUUID()}-${file.name.replace(/[^\w.\-]/g,'_')}`;
+      const {error:upErr}=await sb.storage.from('thumbnails')
+        .upload(uploadedPath,file,{contentType:file.type, cacheControl:'3600'});
+      if(upErr) throw upErr;
+      thumbUrl=sb.storage.from('thumbnails').getPublicUrl(uploadedPath).data.publicUrl;
+    }
+
+    const payload={
+      title, subtitle:document.getElementById('f_subtitle').value.trim(),
+      description:document.getElementById('f_description').value.trim(),
+      link_url:link, button_label:document.getElementById('f_button').value.trim()||'Open',
+      visible_to_all:document.getElementById('f_visall').checked
+    };
+    if(thumbUrl) payload.thumbnail_url=thumbUrl;
+
+    let cardId=id, oldThumb=null;
+    if(id){
+      oldThumb=cardsById[id]?.thumbnail_url||null;
+      const {error}=await sb.from('cards').update(payload).eq('id',id); if(error) throw error;
+    }else{
+      const {data:top}=await sb.from('cards').select('sort_order').order('sort_order',{ascending:false}).limit(1).maybeSingle();
+      payload.sort_order=(top?.sort_order ?? -1)+1;
+      const {data,error}=await sb.from('cards').insert(payload).select('id').single(); if(error) throw error;
+      cardId=data.id;
+    }
+
+    await sb.from('card_access').delete().eq('card_id',cardId);
+    if(!payload.visible_to_all){
+      const checked=[...document.querySelectorAll('#accessList input:checked')].map(i=>i.value);
+      if(checked.length){
+        const {error:accErr}=await sb.from('card_access').insert(checked.map(uid=>({card_id:cardId,user_id:uid})));
+        if(accErr) throw accErr;
+      }
+    }
+
+    if(thumbUrl && oldThumb){
+      const old=thumbPath(oldThumb);
+      if(old) sb.storage.from('thumbnails').remove([old]).catch(e=>console.error(e));
+    }
+
+    uploadedPath=null;
+    closeModal(); loadCards();
+  }catch(e){
+    if(uploadedPath) sb.storage.from('thumbnails').remove([uploadedPath]).catch(()=>{});
+    err.textContent=friendlyError(e,'Couldn\u2019t save that card.');
+  }
+  finally{ saveBtn.disabled=false; saveBtn.textContent='Save'; }
+}
+
+async function deleteCard(id){
+  const c=cardsById[id];
+  if(!confirm(`Delete "${c?.title||'this card'}"? This can't be undone.`)) return;
+  const {error}=await sb.from('cards').delete().eq('id',id);
+  if(error){ alert(friendlyError(error,'Couldn\u2019t delete that card.')); return; }
+  const path=thumbPath(c?.thumbnail_url);
+  if(path) sb.storage.from('thumbnails').remove([path]).catch(e=>console.error(e));
+  loadCards();
+}
+
+document.getElementById('f_thumb')?.addEventListener('change',async e=>{
+  const f=e.target.files[0]; const p=document.getElementById('thumbPreview');
+  const err=document.getElementById('modalErr');
+  if(!f) return;
+  const problem=await validateImage(f);
+  if(problem){ err.textContent=problem; e.target.value=''; p.style.display='none'; return; }
+  err.textContent='';
+  p.src=URL.createObjectURL(f); p.style.display='block';
+});
+
+/* ---- keyboard ---- */
+function trapFocus(e, container){
+  const f=[...container.querySelectorAll('a[href],button:not([disabled]),input:not([disabled]),textarea:not([disabled]),select:not([disabled]),[tabindex]:not([tabindex="-1"])')]
+    .filter(el=>el.offsetParent!==null);
+  if(!f.length) return;
+  const first=f[0], last=f[f.length-1];
+  if(e.shiftKey && document.activeElement===first){ e.preventDefault(); last.focus(); }
+  else if(!e.shiftKey && document.activeElement===last){ e.preventDefault(); first.focus(); }
+}
+
+window.addEventListener('keydown',e=>{
+  const modal=document.getElementById('overlay');
+  const detail=document.getElementById('detailOverlay');
+  const openOverlay = modal.classList.contains('show') ? modal
+                    : detail.classList.contains('show') ? detail : null;
+
+  if(e.key==='Escape'){ closeDetail(); closeModal(); return; }
+  if(e.key==='Tab' && openOverlay){ trapFocus(e, openOverlay); return; }
+  if(e.key==='Enter'){
+    if(!document.getElementById('recovery').classList.contains('hidden')) { saveNewPassword(); return; }
+    if(!document.getElementById('login').classList.contains('hidden')) signIn();
+    return;
+  }
+  // Arrow keys nudge the rail, as long as you aren't typing in a field.
+  const typing=/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName||'');
+  if(!openOverlay && !typing && !document.getElementById('app').classList.contains('hidden')){
+    if(e.key==='ArrowRight'){ scrollRail(1); }
+    if(e.key==='ArrowLeft'){ scrollRail(-1); }
+  }
+});
+
+init();
+</script>
+</body>
+</html>
