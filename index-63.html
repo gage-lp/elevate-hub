@@ -1,0 +1,1732 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Elevate Hub</title>
+
+<!-- ============================================================= -->
+<!--  Content Security Policy                                       -->
+<!--                                                                -->
+<!--  GitHub Pages can't set real headers, so this is a meta CSP.    -->
+<!--  Limitation: frame-ancestors is ignored in meta form, so the    -->
+<!--  frame-buster near the top of the script block covers that.     -->
+<!--  'unsafe-inline' is required for script-src because this is a   -->
+<!--  single-file app with inline handlers. That's a real weakness   -->
+<!--  and it's the reason default-src is 'none' and connect-src is   -->
+<!--  locked to one host: an injected script still can't phone home. -->
+<!-- ============================================================= -->
+<meta http-equiv="Content-Security-Policy" content="
+  default-src 'none';
+  script-src 'self' 'unsafe-inline';
+  style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+  font-src https://fonts.gstatic.com;
+  img-src 'self' data: blob: https://lncqjxyjelglmblxojei.supabase.co;
+  connect-src https://lncqjxyjelglmblxojei.supabase.co wss://lncqjxyjelglmblxojei.supabase.co;
+  form-action 'none';
+  base-uri 'none';
+  object-src 'none';
+">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+
+<script>
+  const SUPABASE_URL = 'https://lncqjxyjelglmblxojei.supabase.co';
+  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxuY3FqeHlqZWxnbG1ibHhvamVpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIyNDYwNDIsImV4cCI6MjA5NzgyMjA0Mn0.3pbYmkC-IuxlvbEEDaifM3kNWgTxT4qMNp9Fu6Hbkyg';
+
+  const MAX_THUMB_BYTES = 5 * 1024 * 1024;   // 5 MB
+  const SIGNED_URL_TTL  = 60 * 60;           // 1 hour
+  const IDLE_TIMEOUT_MS = 12 * 60 * 60 * 1000; // sign out after 12h idle
+
+  // SVG is deliberately excluded — an SVG is a document that can carry
+  // <script>, and the storage bucket would serve it with that content-type.
+  const ALLOWED_IMAGE_TYPES = ['image/png','image/jpeg','image/webp','image/gif'];
+  const THUMB_MAX_WIDTH = 900;    // cards render ~310px, so 900 covers retina
+  const THUMB_QUALITY   = 0.82;
+
+  // Who agents are told to contact when they're stuck. Change here, both places update.
+  const SUPPORT_CONTACT = 'Gage';
+</script>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800&family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+<!-- Vendored from the npm registry, committed to the repo. No CDN in the
+     trust path: these run with full access to the session, so a bad CDN
+     build would mean every token. Update by re-running npm pack. -->
+<script src="vendor/supabase-js-2.115.0.js"></script>
+<script src="vendor/sortable-1.15.7.min.js"></script>
+
+<style>
+  /* ============================================================
+     Control surface. Precision instead of glow.
+     Depth comes from layered navy values and 1px lines — never
+     blur, never shadow spread, never gradient as decoration.
+     Aqua appears only for active state and one primary action.
+     ============================================================ */
+  :root{
+    --ink:#030328;        /* ground */
+    --s1:#080833;         /* panel: sidebar, modals */
+    --s2:#0D0D3E;         /* control face: cards, inputs */
+    --s3:#13134A;         /* raised / hover */
+    --line:#1C1C58;       /* hairline */
+    --line-2:#2A2A6E;     /* hairline, emphasis */
+    --text:#EDEFFA;
+    --dim:#868DC2;
+    --accent:#00FBF0;
+    --accent-dim:#0A8F8B;
+    --on-accent:#03102B;
+    --danger:#FF7B7B;
+
+    --r1:4px;             /* controls */
+    --r2:10px;            /* cards, panels */
+    --r3:14px;            /* modals */
+
+    --display:"Montserrat",system-ui,sans-serif;
+    --ui:"Poppins",system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+    font-family:var(--ui);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  button,a,label,input,select,textarea,.card,.nav-item{touch-action:manipulation}
+  input[type=checkbox]{accent-color:var(--accent)}
+  html,body{height:100%}
+  body{background:var(--ink);color:var(--text);min-height:100dvh;overflow:hidden;
+    -webkit-font-smoothing:antialiased;position:relative}
+
+  h1,h2,h3{font-family:var(--display);letter-spacing:-.02em}
+
+  :focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:2px}
+
+  /* Grain, not gradients. Gives the flat navy some tooth. */
+  .nebula{position:fixed;inset:0;z-index:-1;pointer-events:none;opacity:.05;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")}
+  .blob{display:none}
+
+  .hidden{display:none!important}
+  .on-narrow{display:none}
+
+  /* ---------- controls ---------- */
+  .btn{border:1px solid var(--line-2);background:var(--s2);color:var(--text);font-family:inherit;
+    padding:10px 18px;border-radius:var(--r1);font-size:14px;font-weight:500;cursor:pointer;
+    transition:background .14s ease,border-color .14s ease}
+  .btn:hover{background:var(--s3);border-color:var(--dim)}
+  .btn:active{background:var(--s2)}
+  .btn:disabled{opacity:.4;cursor:not-allowed}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent);font-weight:600}
+  .btn.primary:hover{background:#5FFDF7;border-color:#5FFDF7}
+  .btn.danger{background:transparent;border-color:#63344A;color:var(--danger)}
+  .btn.danger:hover{background:#2A1230;border-color:var(--danger)}
+  .btn.sm{padding:7px 12px;font-size:13px}
+
+  input,textarea{width:100%;background:var(--ink);border:1px solid var(--line-2);
+    color:var(--text);padding:13px 14px;border-radius:var(--r1);font-size:16px;
+    font-family:inherit;margin-bottom:12px;transition:border-color .14s ease}
+  input:focus,textarea:focus{outline:none;border-color:var(--accent)}
+  input::placeholder,textarea::placeholder{color:#5C6299}
+  label{display:block;font-size:13px;color:var(--dim);margin-bottom:7px;font-weight:500}
+  .err{color:var(--danger);font-size:14px;min-height:18px;margin-top:4px}
+  .ok{color:#6FE3C4;font-size:14px;min-height:18px;margin-top:6px}
+
+  /* ---------- boot ---------- */
+  #boot{position:fixed;inset:0;z-index:90;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;gap:22px;transition:opacity .3s ease}
+  #boot.fade{opacity:0;pointer-events:none}
+  #boot .mark{width:44px;height:44px;border-radius:var(--r1);border:1px solid var(--accent);
+    display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden}
+  #boot .mark::after{content:"";position:absolute;left:0;right:0;height:2px;background:var(--accent);
+    animation:sweep 1.1s ease-in-out infinite}
+  @keyframes sweep{0%{top:0}50%{top:calc(100% - 2px)}100%{top:0}}
+  #boot .msg{font-size:14px;color:var(--dim);letter-spacing:.01em}
+
+  /* ---------- auth ---------- */
+  .login-wrap{height:100dvh;display:flex;align-items:center;justify-content:center;padding:24px}
+  .login-card{width:100%;max-width:390px;background:var(--s1);border:1px solid var(--line);
+    border-radius:var(--r3);padding:36px 32px}
+  .login-card .mark{width:38px;height:38px;border-radius:var(--r1);border:1px solid var(--accent);
+    color:var(--accent);font-family:var(--display);font-weight:800;font-size:19px;
+    display:flex;align-items:center;justify-content:center;margin-bottom:26px}
+  .login-card .mark::before{content:"E"}
+  .login-card h2{font-size:26px;font-weight:700;margin-bottom:6px}
+  .login-card p{color:var(--dim);font-size:14px;margin-bottom:26px;line-height:1.55}
+  .linkbtn{display:block;background:none;border:none;color:var(--dim);font-family:inherit;
+    font-size:14px;margin-top:18px;cursor:pointer;padding:0;text-align:left}
+  .linkbtn:hover{color:var(--accent)}
+  .pw-wrap{position:relative}
+  .pw-wrap input{padding-right:78px}
+  .pw-toggle{position:absolute;right:6px;top:8px;background:none;border:none;color:var(--dim);
+    font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;padding:7px 9px;border-radius:var(--r1)}
+  .pw-toggle:hover{color:var(--accent)}
+
+  /* ---------- shell ---------- */
+  #app{display:flex;height:100dvh;overflow:hidden}
+
+  .sidebar{width:112px;flex:0 0 112px;display:flex;flex-direction:column;align-items:stretch;
+    padding:22px 0;gap:2px;background:var(--s1);border-right:1px solid var(--line);z-index:10}
+  .sidebar .logo{width:36px;height:36px;margin:0 auto 26px;border-radius:var(--r1);
+    border:1px solid var(--accent);color:var(--accent);font-family:var(--display);
+    font-weight:800;font-size:18px;display:flex;align-items:center;justify-content:center}
+  .sidebar .logo::before{content:"E"}
+  .nav-item{position:relative;width:100%;display:flex;flex-direction:column;align-items:center;gap:7px;
+    font-family:inherit;padding:13px 4px;cursor:pointer;color:var(--dim);background:none;border:none;
+    transition:color .14s ease,background .14s ease}
+  .nav-item:hover{color:var(--text);background:var(--s2)}
+  .nav-item.active{color:var(--text);background:var(--s2)}
+  .nav-item.active::before{content:"";position:absolute;left:0;top:8px;bottom:8px;width:2px;background:var(--accent)}
+  .nav-item svg{width:21px;height:21px}
+  .nav-item span{font-size:12px;font-weight:500}
+  .nav-spacer{flex:1}
+  .nav-user{display:flex;flex-direction:column;align-items:center;gap:10px}
+  .avatar{width:32px;height:32px;border-radius:var(--r1);display:flex;align-items:center;justify-content:center;
+    font-size:13px;font-weight:600;color:var(--accent);background:var(--s2);border:1px solid var(--line-2)}
+  .nav-badge{position:absolute;top:8px;left:50%;margin-left:8px;min-width:19px;height:19px;padding:0 5px;
+    border-radius:var(--r1);background:var(--accent);color:var(--on-accent);font-size:11px;font-weight:700;
+    display:flex;align-items:center;justify-content:center;font-variant-numeric:tabular-nums}
+
+  .content{flex:1;display:flex;flex-direction:column;min-width:0;position:relative}
+
+  .topbar{display:flex;align-items:flex-end;justify-content:space-between;gap:20px;
+    padding:30px clamp(22px,4vw,46px) 20px;border-bottom:1px solid var(--line)}
+  .topbar .title{min-width:0}
+  .topbar .title h2{font-size:40px;font-weight:800;line-height:1}
+  .topbar-right{display:flex;align-items:center;gap:16px;min-width:0}
+  .topbar .status{font-size:13px;color:var(--dim);text-align:right;min-width:0;line-height:1.5}
+  .topbar .status .note{display:block;font-size:12px;color:#E0B457;margin-top:2px}
+
+  .bell{position:relative;flex:0 0 auto;width:38px;height:38px;border-radius:var(--r1);
+    display:flex;align-items:center;justify-content:center;cursor:pointer;
+    background:var(--s2);border:1px solid var(--line-2);color:var(--dim);transition:.14s ease}
+  .bell:hover{color:var(--text);border-color:var(--dim)}
+  .bell svg{width:19px;height:19px}
+  .bell-badge{position:absolute;top:-6px;right:-6px;min-width:19px;height:19px;padding:0 5px;
+    border-radius:var(--r1);background:var(--accent);color:var(--on-accent);font-size:11px;font-weight:700;
+    display:flex;align-items:center;justify-content:center;font-variant-numeric:tabular-nums}
+
+  .edit-banner{display:none;align-items:center;gap:10px;padding:12px clamp(22px,4vw,46px);
+    background:var(--s2);border-bottom:1px solid var(--line);font-size:13.5px;color:var(--accent)}
+  body.editing .edit-banner{display:flex}
+
+  /* ---------- rail ---------- */
+  .rail-wrap{flex:1;position:relative;display:flex;align-items:center;min-height:0}
+  .rail-wrap::before,.rail-wrap::after{content:"";position:absolute;top:0;bottom:0;width:44px;
+    z-index:6;pointer-events:none;opacity:0;transition:opacity .2s ease}
+  .rail-wrap::before{left:0;background:linear-gradient(90deg,var(--ink),transparent)}
+  .rail-wrap::after{right:0;background:linear-gradient(270deg,var(--ink),transparent)}
+  .rail-wrap.more-left::before{opacity:1}
+  .rail-wrap.more-right::after{opacity:1}
+
+  .rail{display:flex;gap:18px;overflow-x:auto;overflow-y:hidden;width:100%;height:100%;
+    padding:26px clamp(22px,4vw,46px);scroll-snap-type:x proximity;scroll-behavior:smooth;align-items:center}
+  .rail::-webkit-scrollbar{height:2px}
+  .rail::-webkit-scrollbar-thumb{background:var(--line-2)}
+  .rail::-webkit-scrollbar-track{background:transparent}
+
+  .card{position:relative;flex:0 0 auto;width:clamp(250px,23vw,300px);height:min(66vh,450px);
+    border-radius:var(--r2);overflow:hidden;scroll-snap-align:start;cursor:pointer;
+    background:var(--s2);border:1px solid var(--line-2);user-select:none;-webkit-user-select:none;
+    transition:border-color .14s ease}
+  .card::after{content:"";position:absolute;left:0;right:0;top:0;height:2px;background:var(--accent);
+    transform:scaleX(0);transform-origin:left;transition:transform .18s ease;z-index:4}
+  .card:hover{border-color:var(--accent-dim)}
+  .card:hover::after,.card:focus-visible::after{transform:scaleX(1)}
+  .card:focus-visible{outline:none;border-color:var(--accent)}
+
+  .card .thumb{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;
+    opacity:0;transition:opacity .45s ease}
+  .card .thumb.loaded{opacity:1}
+  .card .thumb.empty{display:flex;align-items:center;justify-content:center;color:var(--dim);
+    font-size:13px;background:var(--s3);opacity:1}
+  .thumb-skel{position:absolute;inset:0;background:var(--s3);transition:opacity .45s ease}
+  .thumb-skel::after{content:"";position:absolute;inset:0;
+    background:linear-gradient(90deg,transparent,rgba(255,255,255,.045),transparent);
+    background-size:200% 100%;animation:shimmer 1.4s linear infinite}
+  @keyframes shimmer{from{background-position:120% 0}to{background-position:-120% 0}}
+  .thumb-skel.gone{opacity:0}
+
+  /* top scrim only — enough to keep the tags legible, nothing more */
+  .card .scrim{position:absolute;inset:0;z-index:1;
+    background:linear-gradient(180deg,rgba(3,3,40,.6) 0%,rgba(3,3,40,0) 26%)}
+
+  /* Information sits below the photograph, on its own surface. */
+  .card .label{position:absolute;left:0;right:0;bottom:0;z-index:3;
+    background:var(--s2);border-top:1px solid var(--line-2);padding:15px 17px 16px}
+  .card .label .sub{font-size:12.5px;font-weight:500;color:var(--dim);margin-bottom:4px;
+    display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden}
+  .card .label h3{font-family:var(--display);font-size:20px;font-weight:700;line-height:1.2;
+    display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .card .cta{display:flex;align-items:center;justify-content:space-between;gap:12px;
+    margin-top:13px;padding-top:12px;border-top:1px solid var(--line)}
+  .card .cta .lbl{font-size:13px;font-weight:500;color:var(--dim);min-width:0;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .card .cta .actions{display:flex;align-items:center;gap:8px;flex:0 0 auto}
+  .card .cta .info{width:32px;height:32px;border-radius:var(--r1);display:flex;align-items:center;
+    justify-content:center;background:transparent;border:1px solid var(--line-2);color:var(--dim);
+    cursor:pointer;padding:0;transition:.14s ease}
+  .card .cta .info:hover{border-color:var(--accent);color:var(--accent)}
+  .card .cta .info svg{width:17px;height:17px}
+  .card .cta .go{width:32px;height:32px;border-radius:var(--r1);display:flex;align-items:center;
+    justify-content:center;background:var(--accent);transition:background .14s ease}
+  .card:hover .cta .go{background:#5FFDF7}
+  .card .cta .go svg{width:17px;height:17px}
+
+  .lock-tag,.new-tag{position:absolute;top:14px;font-size:11.5px;font-weight:600;z-index:4;
+    padding:4px 9px;border-radius:var(--r1);letter-spacing:.01em}
+  .lock-tag{right:14px;background:var(--ink);border:1px solid var(--line-2);color:#E0B457}
+  .new-tag{left:14px;background:var(--accent);color:var(--on-accent)}
+
+  .admin-tools{position:absolute;left:0;right:0;bottom:0;display:none;gap:6px;z-index:5;
+    padding:12px 14px;background:var(--s1);border-top:1px solid var(--line-2)}
+  body.editing .admin-tools{display:flex}
+  body.editing .card{cursor:grab}
+  body.editing .card .label{display:none}
+  .admin-tools .move{display:none}
+  .admin-tools .move[disabled]{opacity:.3}
+  .admin-tools .act-edit,.admin-tools .act-del{flex:1}
+  .card.dragging{opacity:.4}
+
+  .rail-arrow{position:absolute;top:50%;transform:translateY(-50%);z-index:8;width:38px;height:38px;
+    border-radius:var(--r1);display:flex;align-items:center;justify-content:center;cursor:pointer;
+    border:1px solid var(--line-2);background:var(--s1);color:var(--text);transition:.14s ease}
+  .rail-arrow:hover{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+  .rail-arrow.left{left:10px}.rail-arrow.right{right:10px}
+  .rail-arrow svg{width:19px;height:19px}
+  .rail-arrow.mini{display:none}
+  .rail-arrow[disabled]{opacity:.25;cursor:default}
+  .rail-arrow[disabled]:hover{background:var(--s1);border-color:var(--line-2);color:var(--text)}
+
+  .rail-status{display:flex;align-items:center;gap:18px;flex:0 0 auto;
+    padding:0 clamp(22px,4vw,46px) 22px}
+  .rail-progress{flex:1;height:2px;background:var(--line-2)}
+  .rail-progress span{display:block;height:100%;width:0;background:var(--accent);transition:width .16s linear}
+  .rail-count{font-size:13px;color:var(--dim);font-weight:500;white-space:nowrap;
+    font-variant-numeric:tabular-nums;letter-spacing:.02em}
+
+  .rail-msg{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;
+    color:var(--dim);width:100%;text-align:center;padding:24px;font-size:15px;line-height:1.6}
+  .rail-msg strong{display:block;font-family:var(--display);color:var(--text);font-size:22px;
+    font-weight:700;margin-bottom:6px}
+
+  /* ---------- detail ---------- */
+  .detail-overlay{position:fixed;inset:0;z-index:60;display:none;align-items:center;justify-content:center;
+    padding:24px;background:rgba(2,2,18,.86)}
+  .detail-overlay.show{display:flex}
+  .detail{position:relative;width:min(880px,95vw);height:min(520px,86vh);border-radius:var(--r3);
+    overflow:hidden;background:var(--s1);border:1px solid var(--line-2);display:flex}
+  .detail .media{position:relative;flex:0 0 42%;min-width:0;background:var(--s2);
+    border-right:1px solid var(--line)}
+  .detail .media #d_hero{position:absolute;inset:0}
+  .detail .media img{width:100%;height:100%;object-fit:cover;display:block;
+    opacity:0;transition:opacity .4s ease}
+  .detail .media img.loaded{opacity:1}
+  .detail .media .empty{width:100%;height:100%;display:flex;align-items:center;justify-content:center;
+    color:var(--dim);font-size:13px;background:var(--s3)}
+  .detail .info{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;padding:34px clamp(24px,3vw,38px)}
+  .detail .info .scroll{flex:1 1 auto;min-height:0;overflow-y:auto}
+  .detail .info .sub{font-size:13px;font-weight:500;color:var(--accent);margin-bottom:10px}
+  .detail .info h2{font-size:30px;font-weight:800;line-height:1.12;margin-bottom:18px}
+  .detail .info p{font-size:16px;line-height:1.7;color:#C0C6E8;white-space:pre-wrap;max-width:62ch}
+  .detail .info .foot{flex:0 0 auto;padding-top:22px}
+  .detail .info .open{display:inline-flex;padding:14px 30px;font-size:15px;text-decoration:none}
+  .detail .close{position:absolute;top:14px;right:14px;width:34px;height:34px;border-radius:var(--r1);
+    background:var(--s1);border:1px solid var(--line-2);color:var(--text);cursor:pointer;font-size:15px;
+    display:flex;align-items:center;justify-content:center;z-index:3;transition:.14s ease}
+  .detail .close:hover{border-color:var(--danger);color:var(--danger)}
+  @media(max-width:640px){
+    .detail{flex-direction:column;height:min(86vh,640px)}
+    .detail .media{flex:0 0 180px;border-right:none;border-bottom:1px solid var(--line)}
+  }
+
+  /* ---------- modals ---------- */
+  .overlay{position:fixed;inset:0;z-index:70;background:rgba(2,2,18,.86);
+    display:none;align-items:flex-start;justify-content:center;padding:40px 20px;overflow-y:auto}
+  .overlay.show{display:flex}
+  .modal{width:100%;max-width:530px;background:var(--s1);border:1px solid var(--line-2);
+    border-radius:var(--r3);padding:30px}
+  .modal h2{font-size:22px;font-weight:700;margin-bottom:22px}
+  .row{display:flex;gap:12px}.row>*{flex:1}
+  .toggle{display:flex;align-items:center;gap:11px;margin:8px 0 16px;font-size:14.5px;cursor:pointer}
+  .toggle input{width:19px;height:19px;margin:0;flex:0 0 auto}
+  .access-list{max-height:200px;overflow-y:auto;border:1px solid var(--line-2);
+    border-radius:var(--r1);padding:12px;margin-bottom:8px;background:var(--ink)}
+  .access-list label{display:flex;align-items:center;gap:10px;color:var(--text);margin-bottom:11px;
+    cursor:pointer;font-size:15px;font-weight:400}
+  .access-list input{width:19px;height:19px;margin:0;flex:0 0 auto}
+  .hint{font-size:13px;color:var(--dim);margin-bottom:16px;min-height:16px}
+  .hint.warn{color:#E0B457}
+  .modal-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:10px}
+  .thumb-preview{width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:var(--r1);
+    margin-bottom:14px;display:none;border:1px solid var(--line-2)}
+  input[type=file]{position:absolute;width:1px;height:1px;padding:0;margin:-1px;
+    overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+  .file-row{display:flex;align-items:center;gap:14px;margin-bottom:18px;min-width:0}
+  .file-btn{display:inline-flex;align-items:center;flex:0 0 auto;margin:0;cursor:pointer;
+    border:1px solid var(--line-2);background:var(--s2);color:var(--text);
+    padding:10px 18px;border-radius:var(--r1);font-size:14px;font-weight:500;transition:.14s ease}
+  .file-btn:hover{background:var(--s3);border-color:var(--dim)}
+  .file-name{font-size:13px;color:var(--dim);min-width:0;overflow:hidden;
+    text-overflow:ellipsis;white-space:nowrap}
+  .confirm-modal{max-width:410px}
+  .confirm-body{font-size:15px;line-height:1.65;color:#C0C6E8;margin-bottom:24px}
+
+  .panel-list{max-height:46vh;overflow-y:auto;margin-bottom:20px}
+  .panel-row{display:flex;align-items:flex-start;gap:14px;width:100%;text-align:left;
+    background:var(--s2);border:1px solid var(--line);color:var(--text);font-family:inherit;
+    border-radius:var(--r1);padding:15px 17px;margin-bottom:8px;cursor:pointer;transition:.14s ease}
+  .panel-row:hover{border-color:var(--accent-dim)}
+  .panel-row .rt{font-size:15px;font-weight:600;margin-bottom:4px}
+  .panel-row .rs{font-size:13.5px;color:var(--dim);line-height:1.55;white-space:pre-wrap}
+  .panel-row .rm{flex:1;min-width:0}
+  .panel-row.done .rt,.panel-row.done .rs{opacity:.6}
+  .panel-empty{color:var(--dim);font-size:15px;padding:24px 4px 28px;text-align:center;line-height:1.6}
+  .kind-pick{display:flex;gap:10px;margin-bottom:18px}
+  .kind-pick button{flex:1;padding:14px 10px;border-radius:var(--r1);font-family:inherit;font-size:14.5px;
+    font-weight:500;cursor:pointer;background:var(--s2);color:var(--dim);
+    border:1px solid var(--line-2);transition:.14s ease}
+  .kind-pick button:hover{color:var(--text)}
+  .kind-pick button.on{background:var(--s3);border-color:var(--accent);color:var(--text)}
+  .fb-meta{font-size:12.5px;color:#5C6299;margin-top:7px;font-variant-numeric:tabular-nums}
+  .fb-done{flex:0 0 auto;font-size:12px;padding:6px 11px}
+  .fb-tabs{display:flex;gap:10px;margin:24px 0 16px}
+  .fb-tabs button{flex:1;padding:11px 8px;border-radius:var(--r1);font-family:inherit;font-size:13.5px;
+    font-weight:500;background:var(--s2);border:1px solid var(--line-2);
+    color:var(--dim);cursor:pointer;transition:.14s ease}
+  .fb-tabs button:hover{color:var(--text)}
+  .fb-tabs button.on{background:var(--s3);border-color:var(--accent);color:var(--text)}
+
+  .toast{position:fixed;left:50%;bottom:30px;transform:translate(-50%,10px);z-index:95;
+    background:var(--s1);border:1px solid var(--line-2);border-left:2px solid var(--accent);
+    color:var(--text);padding:14px 22px;border-radius:var(--r1);font-size:14.5px;font-weight:500;
+    opacity:0;pointer-events:none;transition:opacity .2s ease,transform .2s ease}
+  .toast.show{opacity:1;transform:translate(-50%,0)}
+  .toast.bad{border-left-color:var(--danger);color:#FFC4C4}
+
+  /* ---------- phone ---------- */
+  @media(max-width:720px){
+    #app{flex-direction:column-reverse}
+    .sidebar{width:auto;flex:0 0 auto;flex-direction:row;align-items:stretch;justify-content:space-around;
+      gap:0;padding:0 0 6px;border-right:none;border-top:1px solid var(--line)}
+    .sidebar .logo,.nav-spacer,.avatar{display:none}
+    .nav-user{display:contents}
+    .nav-item{flex:1;padding:11px 2px 9px;gap:5px}
+    .nav-item.active::before{left:0;right:0;top:0;bottom:auto;width:auto;height:2px}
+    .nav-item svg{width:22px;height:22px}
+    .nav-item span{font-size:11px}
+    .nav-badge{top:6px;margin-left:6px}
+
+    .topbar,.edit-banner,.rail-status,.sidebar{flex:0 0 auto}
+    .topbar{flex-direction:column;align-items:flex-start;gap:6px;padding:16px 18px 14px}
+    .topbar .title{max-width:100%}
+    .topbar .title h2{font-size:26px;max-width:100%;
+      white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .topbar-right{width:100%;justify-content:space-between;gap:10px}
+    .topbar .status{font-size:12.5px;text-align:left;
+      overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .bell{width:36px;height:36px}
+    .edit-banner{padding:11px 18px;font-size:13px}
+
+    .on-wide{display:none}
+    .on-narrow{display:inline}
+    .rail{padding:16px 18px;gap:14px;scroll-snap-type:x mandatory}
+    .card{width:82%;height:min(56vh,420px)}
+    .card .label h3{font-size:19px}
+    .rail-wrap>.rail-arrow{display:none}
+    .rail-wrap::before,.rail-wrap::after{width:28px}
+    .rail-status{gap:14px;padding:0 18px 14px}
+    .rail-arrow.mini{display:flex;position:static;transform:none;width:42px;height:42px;flex:0 0 auto}
+    .admin-tools{gap:6px;padding:11px 12px}
+    .admin-tools .move{display:inline-flex;align-items:center;justify-content:center;
+      flex:0 0 auto;padding:7px 11px;font-size:15px;line-height:1}
+
+    .toast{bottom:104px;left:16px;right:16px;transform:translateY(10px);text-align:center}
+    .toast.show{transform:translateY(0)}
+    .detail-overlay{padding:14px}
+    .overlay{padding:20px 14px}
+    .modal{padding:24px 20px}
+    .login-card{padding:30px 24px}
+  }
+
+  @media(prefers-reduced-motion:reduce){
+    *,*::before,*::after{animation-duration:.001ms!important;animation-iteration-count:1!important;
+      transition-duration:.001ms!important;scroll-behavior:auto!important}
+  }
+</style>
+</head>
+<body>
+<div class="nebula" aria-hidden="true"><div class="blob b1"></div><div class="blob b2"></div></div>
+
+<!-- BOOT -->
+<div id="boot">
+  <div class="mark" aria-hidden="true"></div>
+  <div class="msg" role="status">Loading your resources…</div>
+</div>
+
+<!-- LOGIN -->
+<div id="login" class="login-wrap hidden">
+  <div class="login-card">
+    <div class="mark" aria-hidden="true"></div>
+    <h2>Elevate Hub</h2>
+    <p>Sign in with the account set up for you</p>
+    <div id="loginHelp" class="err" style="color:var(--muted);margin:0 0 18px"></div>
+    <label for="email">Email</label>
+    <input id="email" type="email" autocomplete="username" inputmode="email"
+           autocapitalize="none" autocorrect="off" spellcheck="false"
+           enterkeyhint="next" placeholder="you@elevate.com">
+    <label for="password">Password</label>
+    <div class="pw-wrap">
+      <input id="password" type="password" autocomplete="current-password"
+             enterkeyhint="go" placeholder="Your password">
+      <button type="button" class="pw-toggle" id="pwToggle"
+              onclick="togglePassword('password','pwToggle')">Show</button>
+    </div>
+    <button class="btn primary" id="signInBtn" style="width:100%;margin-top:6px" onclick="signIn()">Sign in</button>
+    <div id="loginErr" class="err" role="alert"></div>
+    <div id="loginOk" class="ok" role="status"></div>
+    <button class="linkbtn" onclick="sendReset()">Forgot your password?</button>
+  </div>
+</div>
+
+<!-- SET NEW PASSWORD (after clicking the emailed recovery link) -->
+<div id="recovery" class="login-wrap hidden">
+  <div class="login-card">
+    <div class="mark" aria-hidden="true"></div>
+    <h2>Set a new password</h2>
+    <p>Pick something you haven't used here before</p>
+    <label for="newPass">New password</label>
+    <div class="pw-wrap">
+      <input id="newPass" type="password" autocomplete="new-password" placeholder="At least 10 characters">
+      <button type="button" class="pw-toggle" id="newPassToggle"
+              onclick="togglePassword('newPass','newPassToggle')">Show</button>
+    </div>
+    <label for="newPass2">Confirm password</label>
+    <input id="newPass2" type="password" autocomplete="new-password" placeholder="Type it again">
+    <button class="btn primary" id="savePassBtn" style="width:100%;margin-top:6px" onclick="saveNewPassword()">Save password</button>
+    <div id="recoveryErr" class="err" role="alert"></div>
+  </div>
+</div>
+
+<!-- APP -->
+<div id="app" class="hidden">
+  <aside class="sidebar">
+    <div class="logo" aria-hidden="true"></div>
+    <button id="navLibrary" class="nav-item active" onclick="showLibrary()" title="Library">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+      <span>Library</span>
+    </button>
+    <button id="navAdd" class="nav-item hidden" onclick="openModal()" title="Add card">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      <span>Add</span>
+    </button>
+    <button id="navEdit" class="nav-item hidden" onclick="toggleEdit()" title="Edit mode">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+      <span id="navEditLabel">Edit</span>
+    </button>
+    <button id="navFeedback" class="nav-item" onclick="openFeedback()" title="Send feedback">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5Z"/></svg>
+      <span>Feedback</span>
+      <span class="nav-badge hidden" id="fbBadge">0</span>
+    </button>
+    <div class="nav-spacer"></div>
+    <div class="nav-user">
+      <div class="avatar" id="avatar" aria-hidden="true"></div>
+      <button class="nav-item" onclick="signOut()" title="Sign out" style="padding-top:8px">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        <span>Sign out</span>
+      </button>
+    </div>
+  </aside>
+
+  <main class="content">
+    <div class="topbar">
+      <div class="title"><h2>Elevate Hub</h2></div>
+      <div class="topbar-right">
+        <div class="status" id="who"></div>
+        <button class="bell" id="bell" onclick="openWhatsNew()" aria-label="What's new">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
+          <span class="bell-badge hidden" id="bellBadge">0</span>
+        </button>
+      </div>
+    </div>
+    <div class="edit-banner">
+      <span class="on-wide">Edit mode — drag cards to reorder, or use the buttons on each card.</span>
+      <span class="on-narrow">Edit mode — use ← → to reorder, or Edit and Delete on each card.</span>
+    </div>
+
+    <div class="rail-wrap">
+      <button class="rail-arrow left" id="railLeft" onclick="scrollRail(-1)" aria-label="Show previous cards"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="15 18 9 12 15 6"/></svg></button>
+      <div id="rail" class="rail"></div>
+      <button class="rail-arrow right" id="railRight" onclick="scrollRail(1)" aria-label="Show more cards"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg></button>
+      <div id="railMsg" class="rail-msg hidden"></div>
+    </div>
+    <div id="railStatus" class="rail-status hidden">
+      <button class="rail-arrow left mini" onclick="scrollRail(-1)" aria-label="Show previous cards"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="15 18 9 12 15 6"/></svg></button>
+      <div class="rail-progress"><span id="railProgressBar"></span></div>
+      <div class="rail-count" id="railCount" role="status"></div>
+      <button class="rail-arrow right mini" onclick="scrollRail(1)" aria-label="Show more cards"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg></button>
+    </div>
+  </main>
+</div>
+
+<div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+
+<!-- CONFIRM -->
+<div id="confirmOverlay" class="overlay" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
+  <div class="modal confirm-modal">
+    <h2 id="confirmTitle">Are you sure?</h2>
+    <p id="confirmBody" class="confirm-body"></p>
+    <div class="modal-actions">
+      <button class="btn" id="confirmCancel">Cancel</button>
+      <button class="btn danger" id="confirmOk">Delete</button>
+    </div>
+  </div>
+</div>
+
+<!-- EXPANDED DETAIL -->
+<div id="detailOverlay" class="detail-overlay" role="dialog" aria-modal="true" aria-labelledby="d_title" onclick="if(event.target===this)closeDetail()">
+  <div class="detail">
+    <div class="media"><div id="d_hero"></div></div>
+    <button class="close" id="detailClose" onclick="closeDetail()" aria-label="Close">✕</button>
+    <div class="info">
+      <div class="scroll">
+        <div id="d_sub" class="sub"></div>
+        <h2 id="d_title"></h2>
+        <p id="d_desc"></p>
+      </div>
+      <div class="foot"><a id="d_link" class="btn primary open" target="_blank" rel="noopener noreferrer"></a></div>
+    </div>
+  </div>
+</div>
+
+<!-- WHAT'S NEW -->
+<div id="newOverlay" class="overlay" role="dialog" aria-modal="true" aria-labelledby="newTitle">
+  <div class="modal">
+    <h2 id="newTitle">What's new</h2>
+    <div id="newList" class="panel-list"></div>
+    <div class="modal-actions"><button class="btn primary" onclick="closeWhatsNew()">Done</button></div>
+  </div>
+</div>
+
+<!-- FEEDBACK -->
+<div id="fbOverlay" class="overlay" role="dialog" aria-modal="true" aria-labelledby="fbTitle">
+  <div class="modal">
+    <h2 id="fbTitle">Send feedback</h2>
+    <div class="kind-pick">
+      <button type="button" id="kindProblem" onclick="setFeedbackKind('problem')">Something's broken</button>
+      <button type="button" id="kindIdea" onclick="setFeedbackKind('idea')">I have an idea</button>
+    </div>
+    <label for="fbMessage">Tell us what happened, or what you'd like to see</label>
+    <textarea id="fbMessage" rows="5" placeholder="The more detail the better — which card, what you tapped, what you expected."></textarea>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeFeedback()">Cancel</button>
+      <button class="btn primary" id="fbSend" onclick="sendFeedback()">Send</button>
+    </div>
+    <div id="fbErr" class="err" role="alert"></div>
+    <div id="fbAdmin"></div>
+  </div>
+</div>
+
+<!-- ADD/EDIT MODAL -->
+<div id="overlay" class="overlay" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+  <div class="modal">
+    <h2 id="modalTitle">Add card</h2>
+    <input type="hidden" id="cardId">
+    <label for="f_title">Title</label><input id="f_title" placeholder="Elevate Academy">
+    <label for="f_subtitle">Subtitle</label><input id="f_subtitle" placeholder="Training &amp; Certification">
+    <label for="f_description">Description</label><textarea id="f_description" rows="3" placeholder="Shown when the card is expanded"></textarea>
+    <div class="row">
+      <div><label for="f_link">Link URL</label><input id="f_link" placeholder="https://..."></div>
+      <div><label for="f_button">Button label</label><input id="f_button" placeholder="Open"></div>
+    </div>
+    <label>Thumbnail — PNG, JPG, WebP or GIF, 5 MB max</label>
+    <img id="thumbPreview" class="thumb-preview" alt="">
+    <div class="file-row">
+      <label class="file-btn" for="f_thumb" id="fileBtn" role="button" tabindex="0">Choose an image</label>
+      <span class="file-name" id="fileName">No image chosen</span>
+    </div>
+    <input id="f_thumb" type="file" accept="image/png,image/jpeg,image/webp,image/gif">
+    <label class="toggle"><input type="checkbox" id="f_visall" onchange="toggleAccessList()"> Visible to all agents</label>
+    <div id="accessWrap">
+      <label>Or pick who can see it</label>
+      <div id="accessList" class="access-list"></div>
+      <div id="accessHint" class="hint"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">Cancel</button>
+      <button class="btn primary" id="saveBtn" onclick="saveCard()">Save</button>
+    </div>
+    <div id="modalErr" class="err" role="alert"></div>
+  </div>
+</div>
+
+<script>
+/* Quietly hold on to the last failure so a feedback report can carry it.
+   Nothing is transmitted unless the person chooses to send a report. */
+const stripQuery = u => String(u||'').split('?')[0];
+window.addEventListener('error', e=>{
+  lastError={msg:stripQuery(e.message), at:`${stripQuery(e.filename)}:${e.lineno||''}`,
+             when:new Date().toISOString()};
+});
+window.addEventListener('unhandledrejection', e=>{
+  lastError={msg:stripQuery(e.reason?.message || e.reason || ''), at:'promise',
+             when:new Date().toISOString()};
+});
+
+/* Clickjacking guard — meta CSP can't carry frame-ancestors. */
+if (window.top !== window.self) { window.top.location = window.self.location; }
+
+let sb, me=null, isAdmin=false, agents=[], allProfiles=[], sortable=null,
+    lastSeenAt=null, newCardIds=new Set(), feedbackKind='problem', lastError=null,
+    fbTab='new', fbCounts={new:0, done:0}, hadSeenBefore=false, pollTimer=null,
+    pendingThumb=null,
+    cardsById={}, accessById={}, signedThumbs={},
+    lastFocus=null, signingIn=false, recovering=false, idleTimer=null;
+
+/* ---- helpers ---- */
+function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));}
+
+function safeUrl(u){
+  const s=String(u??'').trim();
+  if(!s) return '';
+  try{
+    const p=new URL(s, location.href);
+    return ['http:','https:','mailto:'].includes(p.protocol) ? p.href : '';
+  }catch{ return ''; }
+}
+
+function thumbPath(url){
+  const m=String(url||'').match(/\/storage\/v1\/object\/(?:public|sign)\/thumbnails\/(.+)$/);
+  return m ? decodeURIComponent(m[1].split('?')[0]) : null;
+}
+
+// Log the real error, show the user something that doesn't leak schema,
+// policy names or column names.
+function friendlyError(e, fallback){
+  console.error(e);
+  const msg=String(e?.message||'');
+  if(/Invalid login credentials/i.test(msg)) return 'That email or password isn\u2019t right.';
+  if(/Email not confirmed/i.test(msg))       return 'This account hasn\u2019t been confirmed yet. Ask your admin.';
+  if(/rate limit|too many/i.test(msg))       return 'Too many tries. Wait a minute and try again.';
+  if(/Password should be/i.test(msg))        return 'That password is too short. Use at least 10 characters.';
+  if(/Failed to fetch|NetworkError/i.test(msg)) return 'Couldn\u2019t reach the server. Check your connection.';
+  return fallback || 'Something went wrong. Try again, or let Gage know if it keeps happening.';
+}
+
+// Real image sniffing — file.type is client-supplied and trivially faked.
+async function looksLikeImage(file){
+  const buf=new Uint8Array(await file.slice(0,12).arrayBuffer());
+  const is=(...b)=>b.every((v,i)=>v===null||buf[i]===v);
+  if(is(0x89,0x50,0x4E,0x47,0x0D,0x0A,0x1A,0x0A)) return true;               // PNG
+  if(is(0xFF,0xD8,0xFF)) return true;                                        // JPEG
+  if(is(0x47,0x49,0x46,0x38)) return true;                                   // GIF
+  if(is(0x52,0x49,0x46,0x46) &&
+     buf[8]===0x57 && buf[9]===0x45 && buf[10]===0x42 && buf[11]===0x50) return true; // WEBP
+  return false;
+}
+
+/* Downscale and re-encode before anything leaves the device. A 2MB phone
+   photo lands around 80KB. Re-encoding also drops EXIF, so GPS baked into a
+   listing photo never reaches the bucket. Falls back to the original file
+   if anything here isn't supported. */
+async function compressImage(file){
+  try{
+    let bmp;
+    try{ bmp=await createImageBitmap(file,{imageOrientation:'from-image'}); }
+    catch{ bmp=await createImageBitmap(file); }   // older Safari
+
+    const scale=Math.min(1, THUMB_MAX_WIDTH/bmp.width);
+    const w=Math.round(bmp.width*scale), h=Math.round(bmp.height*scale);
+
+    const canvas=document.createElement('canvas');
+    canvas.width=w; canvas.height=h;
+    canvas.getContext('2d').drawImage(bmp,0,0,w,h);
+    bmp.close?.();
+
+    let blob=await new Promise(r=>canvas.toBlob(r,'image/webp',THUMB_QUALITY));
+    let ext='webp', type='image/webp';
+    if(!blob){   // no WebP encoder
+      blob=await new Promise(r=>canvas.toBlob(r,'image/jpeg',THUMB_QUALITY));
+      ext='jpg'; type='image/jpeg';
+    }
+    if(!blob || blob.size>=file.size) return file;   // never make it bigger
+
+    const base=file.name.replace(/\.[^.]+$/,'') || 'image';
+    return new File([blob], `${base}.${ext}`, {type});
+  }catch(e){
+    console.error('compress failed, using original', e);
+    return file;
+  }
+}
+
+function prettyBytes(n){
+  return n>=1048576 ? (n/1048576).toFixed(1)+' MB' : Math.max(1,Math.round(n/1024))+' KB';
+}
+
+async function validateImage(file){
+  if(!ALLOWED_IMAGE_TYPES.includes(file.type))
+    return 'Use a PNG, JPG, WebP or GIF. SVG files aren\u2019t allowed.';
+  if(file.size>MAX_THUMB_BYTES)
+    return `That image is ${(file.size/1048576).toFixed(1)} MB. Keep thumbnails under 5 MB.`;
+  if(!(await looksLikeImage(file)))
+    return 'That file isn\u2019t a real image. Re-export it and try again.';
+  return null;
+}
+
+let toastTimer=null;
+function toast(msg, bad){
+  const t=document.getElementById('toast');
+  t.textContent=msg;
+  t.classList.toggle('bad', !!bad);
+  t.classList.remove('hidden');
+  requestAnimationFrame(()=>t.classList.add('show'));
+  clearTimeout(toastTimer);
+  toastTimer=setTimeout(()=>{
+    t.classList.remove('show');
+    setTimeout(()=>t.classList.add('hidden'), 320);
+  }, bad ? 4200 : 2600);
+}
+
+/* Replaces the grey browser confirm(), which looked like a system error
+   sitting on top of the app. */
+let confirmResolve=null;
+function askConfirm(title, body, okLabel, danger=true){
+  return new Promise(resolve=>{
+    confirmResolve=resolve;
+    document.getElementById('confirmTitle').textContent=title;
+    document.getElementById('confirmBody').textContent=body;
+    const ok=document.getElementById('confirmOk');
+    ok.textContent=okLabel||'Delete';
+    ok.classList.toggle('danger', danger);
+    ok.classList.toggle('primary', !danger);
+    lastFocus=document.activeElement;
+    document.getElementById('confirmOverlay').classList.add('show');
+    document.getElementById('confirmCancel').focus();
+  });
+}
+function closeConfirm(answer){
+  const o=document.getElementById('confirmOverlay');
+  if(!o.classList.contains('show')) return;
+  o.classList.remove('show');
+  if(lastFocus && document.contains(lastFocus)) lastFocus.focus();
+  if(confirmResolve){ confirmResolve(answer); confirmResolve=null; }
+}
+document.getElementById('confirmCancel').addEventListener('click',()=>closeConfirm(false));
+document.getElementById('confirmOk').addEventListener('click',()=>closeConfirm(true));
+document.getElementById('confirmOverlay').addEventListener('click',e=>{
+  if(e.target.id==='confirmOverlay') closeConfirm(false);
+});
+
+function railMessage(html){
+  const msg=document.getElementById('railMsg'), rail=document.getElementById('rail');
+  const status=document.getElementById('railStatus');
+  if(html){ msg.innerHTML=html; msg.classList.remove('hidden'); rail.classList.add('hidden'); status.classList.add('hidden'); }
+  else{ msg.classList.add('hidden'); msg.innerHTML=''; rail.classList.remove('hidden'); }
+}
+
+/* ---- boot screen ----
+   BOOT_MIN_MS stops the splash itself from flickering: on a warm cache the
+   session check can finish in 30ms, and a logo that appears and vanishes that
+   fast reads as a glitch too. */
+const BOOT_MIN_MS=450;
+const bootStart=Date.now();
+let bootDone=false;
+function hideBoot(){
+  if(bootDone) return;
+  bootDone=true;
+  const b=document.getElementById('boot');
+  const wait=Math.max(0, BOOT_MIN_MS-(Date.now()-bootStart));
+  setTimeout(()=>{
+    b.classList.add('fade');
+    setTimeout(()=>b.classList.add('hidden'), 400);
+  }, wait);
+}
+
+function showLoginScreen(message){
+  document.getElementById('app').classList.add('hidden');
+  document.getElementById('recovery').classList.add('hidden');
+  document.getElementById('login').classList.remove('hidden');
+  document.getElementById('loginErr').textContent=message||'';
+  document.getElementById('loginOk').textContent='';
+  document.body.classList.remove('editing');
+  hideBoot();
+  const em=document.getElementById('email');
+  if(!em.value) em.focus();   // iOS ignores this without a gesture; harmless there
+}
+
+/* ---- idle timeout: shared machines shouldn't stay signed in forever ---- */
+function resetIdleTimer(){
+  clearTimeout(idleTimer);
+  if(!me) return;
+  idleTimer=setTimeout(async()=>{
+    await sb.auth.signOut();
+    me=null; isAdmin=false;
+    showLoginScreen('Signed out after a long idle period. Sign in again.');
+  }, IDLE_TIMEOUT_MS);
+}
+['pointerdown','keydown','visibilitychange'].forEach(ev=>
+  window.addEventListener(ev,()=>{ if(me) resetIdleTimer(); },{passive:true}));
+
+/* ---- boot ---- */
+function init(){
+  document.getElementById('loginHelp').textContent=`No account yet? Ask ${SUPPORT_CONTACT} to set one up for you.`;
+  if(!window.supabase){
+    showLoginScreen('Couldn\u2019t load the app libraries. Reload the page.');
+    return;
+  }
+  sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  // If the network stalls, don't leave someone staring at a pulsing logo.
+  setTimeout(()=>{
+    if(!bootDone) showLoginScreen('That took longer than expected. Sign in to continue.');
+  }, 10000);
+
+  sb.auth.onAuthStateChange((event, session)=>{
+    if(event==='PASSWORD_RECOVERY'){ showRecovery(); return; }
+    if(!session && me && !recovering){
+      me=null; isAdmin=false;
+      showLoginScreen('Your session expired. Sign in again.');
+    }
+  });
+
+  sb.auth.getSession().then(async ({data})=>{
+    if(recovering) return;                       // showRecovery handles the boot screen
+    if(data.session) await onLoggedIn();         // hides boot once the rail is populated
+    else showLoginScreen('');
+  }).catch(e=>{
+    showLoginScreen(friendlyError(e,'Couldn\u2019t reach the server. Check your connection.'));
+  });
+}
+
+async function signIn(){
+  if(signingIn) return;
+  const email=document.getElementById('email').value.trim();
+  const password=document.getElementById('password').value;
+  const err=document.getElementById('loginErr'); err.textContent='';
+  document.getElementById('loginOk').textContent='';
+  const btn=document.getElementById('signInBtn');
+  if(!email||!password){ err.textContent='Enter your email and password.'; return; }
+  signingIn=true; btn.disabled=true; btn.textContent='Signing in\u2026';
+  try{
+    const {error}=await sb.auth.signInWithPassword({email,password});
+    if(error){ err.textContent=friendlyError(error,'Couldn\u2019t sign you in.'); return; }
+    await onLoggedIn();
+  }catch(e){
+    err.textContent=friendlyError(e,'Couldn\u2019t sign you in.');
+  }finally{
+    signingIn=false; btn.disabled=false; btn.textContent='Sign in';
+  }
+}
+
+async function signOut(){
+  // It's a full-width button in the bottom bar on a phone now, sitting right
+  // next to Edit. Too easy to hit by accident to fire straight away.
+  const ok=await askConfirm('Sign out?',
+    'You\u2019ll need your email and password to get back in.', 'Sign out', false);
+  if(!ok) return;
+  await sb.auth.signOut();
+  location.reload();
+}
+
+function togglePassword(fieldId, btnId){
+  const f=document.getElementById(fieldId), b=document.getElementById(btnId);
+  const reveal = f.type==='password';
+  f.type = reveal ? 'text' : 'password';
+  b.textContent = reveal ? 'Hide' : 'Show';
+  b.setAttribute('aria-label', reveal ? 'Hide password' : 'Show password');
+  f.focus();
+}
+
+/* ---- password reset ---- */
+async function sendReset(){
+  const email=document.getElementById('email').value.trim();
+  const err=document.getElementById('loginErr'); const ok=document.getElementById('loginOk');
+  err.textContent=''; ok.textContent='';
+  if(!email){ err.textContent='Enter your email above first, then tap this.'; return; }
+  try{
+    await sb.auth.resetPasswordForEmail(email,{redirectTo:location.origin+location.pathname});
+  }catch(e){ console.error(e); }
+  // Always the same message — don't confirm which emails have accounts.
+  ok.textContent='If that email has an account, a reset link is on its way.';
+}
+function showRecovery(){
+  recovering=true;
+  document.getElementById('login').classList.add('hidden');
+  document.getElementById('app').classList.add('hidden');
+  document.getElementById('recovery').classList.remove('hidden');
+  hideBoot();
+  document.getElementById('newPass').focus();
+}
+async function saveNewPassword(){
+  const p1=document.getElementById('newPass').value;
+  const p2=document.getElementById('newPass2').value;
+  const err=document.getElementById('recoveryErr'); err.textContent='';
+  const btn=document.getElementById('savePassBtn');
+  if(p1.length<10){ err.textContent='Use at least 10 characters.'; return; }
+  if(p1!==p2){ err.textContent='Those two passwords don\u2019t match.'; return; }
+  btn.disabled=true; btn.textContent='Saving\u2026';
+  try{
+    const {error}=await sb.auth.updateUser({password:p1});
+    if(error){ err.textContent=friendlyError(error,'Couldn\u2019t update your password.'); return; }
+    recovering=false;
+    history.replaceState(null,'',location.pathname);
+    await onLoggedIn();
+  }catch(e){
+    err.textContent=friendlyError(e,'Couldn\u2019t update your password.');
+  }finally{ btn.disabled=false; btn.textContent='Save password'; }
+}
+
+/* ---- session ---- */
+async function onLoggedIn(){
+  const {data:{user}}=await sb.auth.getUser();
+  if(!user){ showLoginScreen('Sign in to continue.'); return; }
+
+  const {data:profile, error:profErr}=await sb.from('profiles').select('*').eq('id',user.id).maybeSingle();
+  if(profErr) console.error(profErr);
+
+  me={...user, ...(profile||{})};
+  isAdmin = !!profile && profile.role==='admin';
+  // Captured before we stamp the new value, so badges survive this session.
+  // A first visit has no baseline. Use "now" rather than skipping the check —
+  // skipping left the bell dead for the entire session, including for cards
+  // added minutes later.
+  hadSeenBefore = !!profile?.last_seen_at;
+  lastSeenAt = profile?.last_seen_at || new Date().toISOString();
+  const name = profile?.full_name || user.email;
+
+  document.getElementById('login').classList.add('hidden');
+  document.getElementById('recovery').classList.add('hidden');
+  document.getElementById('app').classList.remove('hidden');
+  document.getElementById('who').innerHTML =
+    esc(name) + (isAdmin ? '<br>Administrator' : '') +
+    (profile ? '' : '<span class="note">Profile not set up yet, showing shared resources only.</span>');
+  document.getElementById('avatar').textContent = (name||'?').trim().charAt(0).toUpperCase();
+
+  if(isAdmin){
+    document.getElementById('navAdd').classList.remove('hidden');
+    document.getElementById('navEdit').classList.remove('hidden');
+    const {data}=await sb.from('profiles').select('id,full_name,role').order('full_name');
+    allProfiles=data||[];
+    agents=allProfiles.filter(p=>p.role==='agent');
+  }
+  resetIdleTimer();
+  await loadCards();
+  startPolling();
+  hideBoot();
+  if(isAdmin) await refreshFeedbackCounts(true);
+
+  // Only stamp on a genuine first visit, to set a starting line. After that
+  // the baseline moves ONLY when the person opens What's New. Stamping on
+  // every page load meant a stray reload silently marked everything as seen.
+  if(!hadSeenBefore) markSeen();
+}
+
+/* ---- thumbnails ----
+   Signed URLs work whether the bucket is public or private, so flipping the
+   bucket to private is a dashboard change with no code change. */
+let signedAt=0;
+async function signThumbnails(cards){
+  signedThumbs={};
+  signedAt=Date.now();
+  const pairs=cards.map(c=>[c.id,thumbPath(c.thumbnail_url)]).filter(([,p])=>p);
+  if(!pairs.length) return;
+  try{
+    const {data,error}=await sb.storage.from('thumbnails')
+      .createSignedUrls(pairs.map(([,p])=>p), SIGNED_URL_TTL);
+    if(error) throw error;
+    (data||[]).forEach((row,i)=>{ if(row?.signedUrl) signedThumbs[pairs[i][0]]=row.signedUrl; });
+  }catch(e){
+    console.error(e); // fall back to whatever is stored
+  }
+}
+/* Fades an image in once it has actually decoded. decode() means we wait for
+   the browser to be ready to paint it, not just for the bytes to land —
+   without it the fade can start while the frame is still being built. */
+function fadeInImage(img, onReady){
+  let done=false;
+  const reveal=()=>{
+    if(done) return; done=true;
+    requestAnimationFrame(()=>{ img.classList.add('loaded'); if(onReady) onReady(); });
+  };
+  if(img.complete && img.naturalWidth){ reveal(); return; }
+  if(img.decode) img.decode().then(reveal).catch(()=>{});
+  img.addEventListener('load', reveal, {once:true});
+}
+
+function thumbFor(c){
+  return safeUrl(signedThumbs[c.id] || c.thumbnail_url);
+}
+
+/* Signed URLs die after SIGNED_URL_TTL. Without this, leaving the Hub open
+   past that point silently turns every card image into a blank box. Re-sign
+   on a timer, and again whenever the tab comes back to the foreground. */
+const RESIGN_AFTER_MS = SIGNED_URL_TTL*1000*0.75;
+async function refreshThumbnails(){
+  const cards=Object.values(cardsById);
+  if(!cards.length) return;
+  // Existing cards predate the baseline, so a first visit is quiet, but
+  // anything added afterwards registers straight away.
+  newCardIds=new Set();
+  const seen=new Date(lastSeenAt).getTime();
+  cards.forEach(c=>{
+    if(c.created_at && new Date(c.created_at).getTime()>seen) newCardIds.add(c.id);
+  });
+  updateBell();
+
+  await signThumbnails(cards);
+  document.querySelectorAll('#rail .card').forEach(el=>{
+    const c=cardsById[el.dataset.id];
+    const img=el.querySelector('img.thumb');
+    const url=c && thumbFor(c);
+    if(!img || !url) return;
+    // Load the fresh URL out of sight first, then swap. Assigning src
+    // directly would blank the card for a beat on every refresh.
+    const pre=new Image();
+    pre.onload=()=>{ img.src=url; };
+    pre.src=url;
+  });
+}
+setInterval(()=>{ if(me) refreshThumbnails(); }, RESIGN_AFTER_MS);
+document.addEventListener('visibilitychange',()=>{
+  if(!document.hidden && me && Date.now()-signedAt > RESIGN_AFTER_MS) refreshThumbnails();
+});
+
+/* ---- cards ---- */
+async function loadCards(){
+  const {data:cards,error}=await sb.from('cards').select('*').order('sort_order');
+  if(error){
+    railMessage('<div><strong>Couldn\u2019t load your resources</strong>'+
+                esc(friendlyError(error,'Something went wrong on our end.'))+'</div>'+
+                '<button class="btn primary" onclick="loadCards()">Try again</button>');
+    return;
+  }
+
+  cardsById={}; cards.forEach(c=>cardsById[c.id]=c);
+
+  accessById={};
+  if(isAdmin){
+    const {data:acc,error:accErr}=await sb.from('card_access').select('card_id,user_id');
+    if(accErr) console.error(accErr);
+    (acc||[]).forEach(a=>{(accessById[a.card_id]=accessById[a.card_id]||[]).push(a.user_id);});
+  }
+
+  await signThumbnails(cards);
+
+  const rail=document.getElementById('rail');
+  rail.innerHTML='';
+
+  if(!cards.length){
+    railMessage(isAdmin
+      ? '<div><strong>No resources yet</strong>Add your first card to get started.</div><button class="btn primary" onclick="openModal()">Add a card</button>'
+      : `<div><strong>Nothing here yet</strong>Anything shared with you shows up on this page. If you were expecting something, check with ${esc(SUPPORT_CONTACT)}.</div>`);
+    return;
+  }
+  railMessage('');
+
+  cards.forEach((c,i)=>{
+    // div, not button: the card contains its own buttons now, and nesting
+    // interactive elements is invalid and confuses screen readers.
+    const el=document.createElement('div');
+    el.setAttribute('role','button');
+    el.setAttribute('tabindex','0');
+    el.className='card'; el.dataset.id=c.id;
+    el.setAttribute('aria-label', `${c.title||'Resource'}${c.subtitle?' — '+c.subtitle:''}`);
+    const thumb=thumbFor(c);
+    el.innerHTML=`
+      ${newCardIds.has(c.id) ? '<span class="new-tag">New</span>':''}
+      ${isAdmin && !c.visible_to_all ? '<span class="lock-tag">Restricted</span>':''}
+      ${thumb
+        ? `<div class="thumb-skel"></div><img class="thumb" src="${esc(thumb)}" alt=""
+             loading="${i<4?'eager':'lazy'}" fetchpriority="${i===0?'high':'auto'}" decoding="async">`
+        : `<div class="thumb empty">No image</div>`}
+      <div class="scrim"></div>
+      <div class="label">
+        ${c.subtitle?`<div class="sub">${esc(c.subtitle)}</div>`:''}
+        <h3>${esc(c.title)}</h3>
+        <div class="cta">
+          <span class="lbl">${esc(c.button_label||'Open')}</span>
+          <div class="actions">
+          <button class="info" type="button" aria-label="About ${esc(c.title)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><circle cx="12" cy="12" r="9.5"/><line x1="12" y1="11" x2="12" y2="16.5"/><circle cx="12" cy="7.6" r="1.1" fill="currentColor" stroke="none"/></svg></button>
+            <span class="go"><svg viewBox="0 0 24 24" fill="none" stroke="#03102B" stroke-width="2.6" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg></span>
+          </div>
+        </div>
+      </div>
+      <div class="admin-tools">
+        <button class="btn sm move act-left" type="button" aria-label="Move left">&#8592;</button>
+        <button class="btn sm act-edit" type="button">Edit</button>
+        <button class="btn sm danger act-del" type="button">Delete</button>
+        <button class="btn sm move act-right" type="button" aria-label="Move right">&#8594;</button>
+      </div>`;
+    // Expired URL, deleted file, dropped connection -> show the same
+    // placeholder a card with no thumbnail gets, not a blank box.
+    const img=el.querySelector('img.thumb');
+    if(img) fadeInImage(img, ()=>{
+      const skel=el.querySelector('.thumb-skel');
+      if(skel) { skel.classList.add('gone'); setTimeout(()=>skel.remove(), 600); }
+    });
+    if(img) img.addEventListener('error',()=>{
+      if(!el.querySelector('.thumb.empty')){
+        el.insertAdjacentHTML('afterbegin','<div class="thumb empty">Image unavailable</div>');
+      }
+      img.remove();
+    });
+
+    el.querySelector('.act-edit').onclick=e=>{e.stopPropagation();editCard(c);};
+    el.querySelector('.act-del').onclick=e=>{e.stopPropagation();deleteCard(c.id);};
+    el.querySelector('.act-left').onclick=e=>{e.stopPropagation();moveCard(c.id,-1);};
+    el.querySelector('.act-right').onclick=e=>{e.stopPropagation();moveCard(c.id,1);};
+    el.querySelector('.act-left').disabled = i===0;
+    el.querySelector('.act-right').disabled = i===cards.length-1;
+    el.querySelector('.cta .info').onclick=e=>{e.stopPropagation();openDetail(c.id);};
+    el.addEventListener('click',()=>activateCard(c.id));
+    el.addEventListener('keydown',e=>{
+      if(e.key==='Enter'||e.key===' '){ e.preventDefault(); activateCard(c.id); }
+    });
+    rail.appendChild(el);
+  });
+
+  if(isAdmin) setupSort();
+  updateRailCues();
+}
+
+function setupSort(){
+  if(!window.Sortable) return;
+  if(sortable) sortable.destroy();
+  sortable=Sortable.create(document.getElementById('rail'),{
+    animation:180, disabled:!document.body.classList.contains('editing'),
+    ghostClass:'dragging', onEnd:persistOrder
+  });
+}
+
+/* Shared by drag-to-reorder and the arrow buttons. */
+async function saveOrder(ids){
+  const changed=ids.map((id,i)=>({id,i})).filter(({id,i})=>cardsById[id] && cardsById[id].sort_order!==i);
+  if(!changed.length) return true;
+  const results=await Promise.all(changed.map(({id,i})=>sb.from('cards').update({sort_order:i}).eq('id',id)));
+  const failed=results.find(r=>r.error);
+  if(failed){
+    toast(friendlyError(failed.error,'Couldn\u2019t save the new order.'), true);
+    loadCards();
+    return false;
+  }
+  changed.forEach(({id,i})=>{ cardsById[id].sort_order=i; });
+  return true;
+}
+
+async function persistOrder(){
+  const ids=[...document.querySelectorAll('#rail .card')].map(el=>el.dataset.id);
+  if(await saveOrder(ids)) toast('Order saved');
+}
+
+/* Drag and swipe are the same gesture on a phone, so reordering by drag is a
+   coin flip there. These just move a card one slot. */
+async function moveCard(id, dir){
+  const ids=[...document.querySelectorAll('#rail .card')].map(el=>el.dataset.id);
+  const i=ids.indexOf(id), j=i+dir;
+  if(i<0 || j<0 || j>=ids.length) return;
+  [ids[i],ids[j]]=[ids[j],ids[i]];
+  if(!await saveOrder(ids)) return;
+  await loadCards();
+  const safeId = window.CSS?.escape ? CSS.escape(id) : String(id).replace(/["\\]/g,'');
+  const moved=document.querySelector(`#rail .card[data-id="${safeId}"]`);
+  if(moved) moved.scrollIntoView({behavior:'smooth',block:'nearest',inline:'center'});
+  toast('Moved');
+}
+
+function toggleEdit(){
+  const editing=document.body.classList.toggle('editing');
+  document.getElementById('navEdit').classList.toggle('active',editing);
+  document.getElementById('navEditLabel').textContent=editing?'Done':'Edit';
+  if(sortable) sortable.option('disabled',!editing);
+}
+function showLibrary(){
+  closeDetail(); closeModal(); closeWhatsNew(); closeFeedback();
+  document.getElementById('rail').scrollTo({left:0,behavior:'smooth'});
+}
+function scrollRail(dir){
+  const rail=document.getElementById('rail');
+  rail.scrollBy({left:dir*(rail.clientWidth*0.7),behavior:'smooth'});
+}
+
+/* Keeps the arrows, edge fades, progress bar and "3 of 12" readout in sync
+   with where you actually are in the rail. Runs on scroll, on resize, and
+   after every reload of the cards. */
+function updateRailCues(){
+  const rail=document.getElementById('rail');
+  const wrap=rail.closest('.rail-wrap');
+  const status=document.getElementById('railStatus');
+  const bar=document.getElementById('railProgressBar');
+  const count=document.getElementById('railCount');
+  const lefts=[...document.querySelectorAll('.rail-arrow.left')];
+  const rights=[...document.querySelectorAll('.rail-arrow.right')];
+  const cards=[...rail.querySelectorAll('.card')];
+  const max=rail.scrollWidth-rail.clientWidth;
+
+  // Everything already fits, or there's nothing to show: no cues needed.
+  if(!cards.length || max<8 || rail.classList.contains('hidden')){
+    status.classList.add('hidden');
+    wrap.classList.remove('more-left','more-right');
+    [...lefts,...rights].forEach(b=>b.classList.add('hidden'));
+    return;
+  }
+
+  status.classList.remove('hidden');
+  [...lefts,...rights].forEach(b=>b.classList.remove('hidden'));
+
+  const x=rail.scrollLeft;
+  bar.style.width=Math.min(100,Math.max(0,(x/max)*100))+'%';
+
+  const idx=cards.findIndex(c=>c.offsetLeft+c.offsetWidth > x+12);
+  count.textContent=`${idx<0?cards.length:idx+1} of ${cards.length}`;
+
+  wrap.classList.toggle('more-left', x>8);
+  wrap.classList.toggle('more-right', x<max-8);
+  lefts.forEach(b=>b.disabled = x<=8);
+  rights.forEach(b=>b.disabled = x>=max-8);
+}
+
+document.getElementById('rail').addEventListener('scroll',updateRailCues,{passive:true});
+window.addEventListener('resize',updateRailCues);
+
+/* ---- what's new ---- */
+function updateBell(){
+  const badge=document.getElementById('bellBadge');
+  const n=newCardIds.size;
+  badge.textContent=n>9?'9+':String(n);
+  badge.classList.toggle('hidden', n===0);
+  document.getElementById('bell').setAttribute('aria-label',
+    n ? `What's new — ${n} recently added` : 'What\u2019s new');
+}
+/* Advances the baseline. Called when someone opens What's New — not on load. */
+function markSeen(){
+  const now=new Date().toISOString();
+  if(!me?.id) return;
+  sb.from('profiles').update({last_seen_at:now}).eq('id',me.id)
+    .then(({error})=>{
+      if(error) console.error(error);   // badge simply stays until it succeeds
+      else { lastSeenAt=now; hadSeenBefore=true; }
+    });
+}
+
+function openWhatsNew(){
+  const list=document.getElementById('newList');
+  const items=[...newCardIds].map(id=>cardsById[id]).filter(Boolean);
+  if(!items.length){
+    list.innerHTML='<div class="panel-empty">You\u2019re all caught up.<br>Anything added since your last visit shows up here.</div>';
+  }else{
+    list.innerHTML=items.map(c=>
+      `<button class="panel-row" type="button" data-id="${esc(c.id)}">
+         <div class="rm"><div class="rt">${esc(c.title)}</div>
+         ${c.subtitle?`<div class="rs">${esc(c.subtitle)}</div>`:''}</div>
+       </button>`).join('');
+    list.querySelectorAll('.panel-row').forEach(b=>{
+      b.onclick=()=>{ const id=b.dataset.id; closeWhatsNew(); openDetail(id); };
+    });
+  }
+  lastFocus=document.activeElement;
+  document.getElementById('newOverlay').classList.add('show');
+  markSeen();   // they've looked; badges clear on the next load
+}
+function closeWhatsNew(){
+  const o=document.getElementById('newOverlay');
+  if(!o.classList.contains('show')) return;
+  o.classList.remove('show');
+  if(lastFocus && document.contains(lastFocus)) lastFocus.focus();
+}
+
+/* ---- feedback ---- */
+
+/* Counts drive the sidebar badge. announce=true means we just signed in,
+   so also say it out loud once — a badge alone is easy to walk past. */
+async function refreshFeedbackCounts(announce){
+  if(!isAdmin) return;
+  const [openRes, doneRes] = await Promise.all([
+    sb.from('feedback').select('id',{count:'exact',head:true}).eq('status','new'),
+    sb.from('feedback').select('id',{count:'exact',head:true}).eq('status','done')
+  ]);
+  if(openRes.error){ console.error(openRes.error); return; }
+  fbCounts={ new: openRes.count||0, done: doneRes.count||0 };
+
+  const badge=document.getElementById('fbBadge');
+  badge.textContent = fbCounts.new>9 ? '9+' : String(fbCounts.new);
+  badge.classList.toggle('hidden', fbCounts.new===0);
+  document.getElementById('navFeedback').setAttribute('title',
+    fbCounts.new ? `Feedback — ${fbCounts.new} waiting` : 'Send feedback');
+
+  if(announce && fbCounts.new>0){
+    setTimeout(()=>toast(fbCounts.new===1
+      ? '1 new request waiting in Feedback'
+      : `${fbCounts.new} new requests waiting in Feedback`), 900);
+  }
+}
+
+function setFeedbackKind(k){
+  feedbackKind=k;
+  document.getElementById('kindProblem').classList.toggle('on', k==='problem');
+  document.getElementById('kindIdea').classList.toggle('on', k==='idea');
+}
+function openFeedback(){
+  document.getElementById('fbMessage').value='';
+  document.getElementById('fbErr').textContent='';
+  document.getElementById('fbAdmin').innerHTML='';
+  setFeedbackKind('problem');
+  fbTab='new';
+  lastFocus=document.activeElement;
+  document.getElementById('fbOverlay').classList.add('show');
+  document.getElementById('fbMessage').focus();
+  if(isAdmin) loadFeedbackList();
+}
+function closeFeedback(){
+  const o=document.getElementById('fbOverlay');
+  if(!o.classList.contains('show')) return;
+  o.classList.remove('show');
+  if(lastFocus && document.contains(lastFocus)) lastFocus.focus();
+}
+async function sendFeedback(){
+  const err=document.getElementById('fbErr');
+  const msg=document.getElementById('fbMessage').value.trim();
+  err.textContent='';
+  if(msg.length<3){ err.textContent='Add a bit more detail first.'; return; }
+  const btn=document.getElementById('fbSend'); btn.disabled=true; btn.textContent='Sending\u2026';
+  try{
+    const {error}=await sb.from('feedback').insert({
+      user_id: me.id,
+      kind: feedbackKind,
+      message: msg,
+      context: { screen:`${window.innerWidth}x${window.innerHeight}`, ua:navigator.userAgent, lastError }
+    });
+    if(error) throw error;
+    closeFeedback();
+    toast(`Thanks — sent to ${SUPPORT_CONTACT}`);
+    if(isAdmin) refreshFeedbackCounts(false);
+  }catch(e){
+    err.textContent=friendlyError(e,'Couldn\u2019t send that. Try again in a moment.');
+  }finally{ btn.disabled=false; btn.textContent='Send'; }
+}
+function showFeedbackTab(tab){ fbTab=tab; loadFeedbackList(); }
+
+async function loadFeedbackList(){
+  const box=document.getElementById('fbAdmin');
+  await refreshFeedbackCounts(false);
+
+  const {data,error}=await sb.from('feedback').select('*').eq('status',fbTab)
+    .order('created_at',{ascending:false}).limit(50);
+  if(error){ console.error(error); box.innerHTML='<div class="panel-empty">Couldn\u2019t load reports.</div>'; return; }
+
+  const nameOf=id=>allProfiles.find(p=>p.id===id)?.full_name || 'Someone';
+  const done=fbTab==='done';
+
+  const tabs=`<div class="fb-tabs">
+      <button type="button" class="${done?'':'on'}" onclick="showFeedbackTab('new')">Open (${fbCounts.new})</button>
+      <button type="button" class="${done?'on':''}" onclick="showFeedbackTab('done')">Completed (${fbCounts.done})</button>
+    </div>`;
+
+  const rows = !data?.length
+    ? `<div class="panel-empty">${done
+        ? 'Nothing marked complete yet.'
+        : 'No open requests. Anything agents send lands here.'}</div>`
+    : '<div class="panel-list">'+data.map(f=>
+      `<div class="panel-row${done?' done':''}" style="cursor:default">
+         <div class="rm">
+           <div class="rt">${f.kind==='idea'?'Idea':'Problem'} from ${esc(nameOf(f.user_id))}</div>
+           <div class="rs">${esc(f.message)}</div>
+           <div class="fb-meta">${new Date(f.created_at).toLocaleString()}</div>
+         </div>
+         <button class="btn sm fb-done" data-fb="${esc(f.id)}" data-to="${done?'new':'done'}">${done?'Reopen':'Done'}</button>
+       </div>`).join('')+'</div>';
+
+  box.innerHTML=`<h2 style="font-size:17px;margin:26px 0 0">Requests from the team</h2>${tabs}${rows}`;
+
+  box.querySelectorAll('[data-fb]').forEach(b=>{
+    b.onclick=async()=>{
+      b.disabled=true;
+      const {error}=await sb.from('feedback').update({status:b.dataset.to}).eq('id',b.dataset.fb);
+      if(error){ toast(friendlyError(error,'Couldn\u2019t update that.'), true); b.disabled=false; return; }
+      toast(b.dataset.to==='done' ? 'Marked complete' : 'Reopened');
+      loadFeedbackList();
+    };
+  });
+}
+
+/* Agents leave this open all day. Without a poll, a card added at 10am
+   doesn't appear until they happen to reload. Skipped while they're mid-edit
+   or have a panel open so nothing gets yanked out from under them. */
+const POLL_MS = 3*60*1000;
+function canAutoRefresh(){
+  return !!me
+    && !document.body.classList.contains('editing')
+    && !document.querySelector('.overlay.show, .detail-overlay.show')
+    && !document.hidden;
+}
+function startPolling(){
+  clearInterval(pollTimer);
+  pollTimer=setInterval(()=>{ if(canAutoRefresh()) loadCards(); }, POLL_MS);
+}
+document.addEventListener('visibilitychange',()=>{
+  if(!document.hidden && canAutoRefresh()) loadCards();
+});
+
+/* The card is a launcher: one tap goes straight to the resource. The small
+   "i" opens the description for anyone who wants it. */
+function activateCard(id){
+  if(document.body.classList.contains('editing')) return;
+  const c=cardsById[id]; if(!c) return;
+  const href=safeUrl(c.link_url);
+  if(href) window.open(href,'_blank','noopener,noreferrer');
+  else openDetail(id);   // nothing to launch, so show what we have
+}
+
+/* ---- expanded detail ---- */
+function openDetail(id){
+  const c=cardsById[id]; if(!c) return;
+  lastFocus=document.activeElement;
+  const hero=thumbFor(c);
+  const heroBox=document.getElementById('d_hero');
+  heroBox.innerHTML = hero
+    ? `<img src="${esc(hero)}" alt="" decoding="async">` : `<div class="empty">No image</div>`;
+  const heroImg=heroBox.querySelector('img');
+  if(heroImg) fadeInImage(heroImg);
+  if(heroImg) heroImg.addEventListener('error',()=>{
+    heroBox.innerHTML='<div class="empty">Image unavailable</div>';
+  });
+  document.getElementById('d_sub').textContent=c.subtitle||'';
+  document.getElementById('d_sub').style.display=c.subtitle?'block':'none';
+  document.getElementById('d_title').textContent=c.title;
+  document.getElementById('d_desc').textContent=c.description||'';
+  document.getElementById('d_desc').style.display=c.description?'block':'none';
+
+  const link=document.getElementById('d_link');
+  const href=safeUrl(c.link_url);
+  link.textContent=c.button_label||'Open';
+  if(href){ link.href=href; link.classList.remove('hidden'); }
+  else{ link.removeAttribute('href'); link.classList.add('hidden'); }
+
+  document.getElementById('detailOverlay').classList.add('show');
+  document.getElementById('detailClose').focus();
+}
+function closeDetail(){
+  const o=document.getElementById('detailOverlay');
+  if(!o.classList.contains('show')) return;
+  o.classList.remove('show');
+  if(lastFocus && document.contains(lastFocus)) lastFocus.focus();
+}
+
+/* ---- add/edit modal ---- */
+function setFileName(text){ document.getElementById('fileName').textContent=text; }
+
+function resetModalFields(){
+  pendingThumb=null;
+  setFileName('No image chosen');
+  ['cardId','f_title','f_subtitle','f_description','f_link','f_button','f_thumb'].forEach(id=>document.getElementById(id).value='');
+  const p=document.getElementById('thumbPreview');
+  p.style.display='none'; p.removeAttribute('src');
+  // Visible to everyone is the safe default. Starting unchecked meant a new
+  // card saved without touching this box went out to nobody.
+  document.getElementById('f_visall').checked=true;
+  document.getElementById('modalErr').textContent='';
+}
+function showModal(){
+  lastFocus=document.activeElement;
+  document.getElementById('overlay').classList.add('show');
+  document.getElementById('f_title').focus();
+}
+function openModal(){
+  resetModalFields();
+  document.getElementById('modalTitle').textContent='Add card';
+  buildAccessList([]); toggleAccessList();
+  showModal();
+}
+function editCard(c){
+  resetModalFields();
+  document.getElementById('modalTitle').textContent='Edit card';
+  document.getElementById('cardId').value=c.id;
+  document.getElementById('f_title').value=c.title||'';
+  document.getElementById('f_subtitle').value=c.subtitle||'';
+  document.getElementById('f_description').value=c.description||'';
+  document.getElementById('f_link').value=c.link_url||'';
+  document.getElementById('f_button').value=c.button_label||'';
+  document.getElementById('f_visall').checked=!!c.visible_to_all;
+  const thumb=thumbFor(c);
+  if(thumb){
+    const p=document.getElementById('thumbPreview');
+    p.src=thumb; p.style.display='block';
+    setFileName('Current image — choose a new one to replace it');
+  }
+  buildAccessList(accessById[c.id]||[]); toggleAccessList();
+  showModal();
+}
+function buildAccessList(checkedIds){
+  const list=document.getElementById('accessList');
+  list.innerHTML=agents.length?'':'<span style="color:var(--muted);font-size:13px">No agents yet.</span>';
+  agents.forEach(a=>{
+    list.insertAdjacentHTML('beforeend',
+      `<label><input type="checkbox" value="${esc(a.id)}" onchange="updateAccessHint()" ${checkedIds.includes(a.id)?'checked':''}> ${esc(a.full_name||'(no name)')}</label>`);
+  });
+  updateAccessHint();
+}
+function updateAccessHint(){
+  const hint=document.getElementById('accessHint');
+  if(document.getElementById('f_visall').checked){ hint.textContent=''; hint.classList.remove('warn'); return; }
+  const n=document.querySelectorAll('#accessList input:checked').length;
+  if(n===0){ hint.textContent='Nobody is selected — this card will be hidden from every agent.'; hint.classList.add('warn'); }
+  else{ hint.textContent=n===1?'Visible to 1 agent.':`Visible to ${n} agents.`; hint.classList.remove('warn'); }
+}
+function toggleAccessList(){
+  document.getElementById('accessWrap').style.display=document.getElementById('f_visall').checked?'none':'block';
+  updateAccessHint();
+}
+function closeModal(){
+  const o=document.getElementById('overlay');
+  if(!o.classList.contains('show')) return;
+  o.classList.remove('show');
+  if(lastFocus && document.contains(lastFocus)) lastFocus.focus();
+}
+
+async function saveCard(){
+  const err=document.getElementById('modalErr'); err.textContent='';
+  const id=document.getElementById('cardId').value;
+  const title=document.getElementById('f_title').value.trim();
+  const rawLink=document.getElementById('f_link').value.trim();
+  if(!title||!rawLink){ err.textContent='Title and link are required.'; return; }
+
+  const link=safeUrl(rawLink);
+  if(!link){ err.textContent='That link isn\u2019t valid. Use a full https:// address.'; return; }
+
+  const file=pendingThumb;   // already validated and compressed on selection
+
+  const saveBtn=document.getElementById('saveBtn'); saveBtn.disabled=true; saveBtn.textContent='Saving\u2026';
+  let uploadedPath=null;
+  try{
+    let thumbUrl;
+    if(file){
+      uploadedPath=`${crypto.randomUUID()}-${file.name.replace(/[^\w.\-]/g,'_')}`;
+      const {error:upErr}=await sb.storage.from('thumbnails')
+        .upload(uploadedPath,file,{contentType:file.type, cacheControl:'3600'});
+      if(upErr) throw upErr;
+      thumbUrl=sb.storage.from('thumbnails').getPublicUrl(uploadedPath).data.publicUrl;
+    }
+
+    const payload={
+      title, subtitle:document.getElementById('f_subtitle').value.trim(),
+      description:document.getElementById('f_description').value.trim(),
+      link_url:link, button_label:document.getElementById('f_button').value.trim()||'Open',
+      visible_to_all:document.getElementById('f_visall').checked
+    };
+    if(thumbUrl) payload.thumbnail_url=thumbUrl;
+
+    let cardId=id, oldThumb=null;
+    if(id){
+      oldThumb=cardsById[id]?.thumbnail_url||null;
+      const {error}=await sb.from('cards').update(payload).eq('id',id); if(error) throw error;
+    }else{
+      const {data:top}=await sb.from('cards').select('sort_order').order('sort_order',{ascending:false}).limit(1).maybeSingle();
+      payload.sort_order=(top?.sort_order ?? -1)+1;
+      const {data,error}=await sb.from('cards').insert(payload).select('id').single(); if(error) throw error;
+      cardId=data.id;
+    }
+
+    await sb.from('card_access').delete().eq('card_id',cardId);
+    if(!payload.visible_to_all){
+      const checked=[...document.querySelectorAll('#accessList input:checked')].map(i=>i.value);
+      if(checked.length){
+        const {error:accErr}=await sb.from('card_access').insert(checked.map(uid=>({card_id:cardId,user_id:uid})));
+        if(accErr) throw accErr;
+      }
+    }
+
+    if(thumbUrl && oldThumb){
+      const old=thumbPath(oldThumb);
+      if(old) sb.storage.from('thumbnails').remove([old]).catch(e=>console.error(e));
+    }
+
+    uploadedPath=null;
+    closeModal();
+    await loadCards();
+    toast(id ? 'Changes saved' : `"${title}" added`);
+  }catch(e){
+    if(uploadedPath) sb.storage.from('thumbnails').remove([uploadedPath]).catch(()=>{});
+    err.textContent=friendlyError(e,'Couldn\u2019t save that card.');
+  }
+  finally{ saveBtn.disabled=false; saveBtn.textContent='Save'; }
+}
+
+async function deleteCard(id){
+  const c=cardsById[id];
+  const name=c?.title||'This card';
+  const ok=await askConfirm('Delete this card?',
+    `${name} will disappear for everyone who can see it. This can't be undone.`,
+    'Delete');
+  if(!ok) return;
+  const {error}=await sb.from('cards').delete().eq('id',id);
+  if(error){ toast(friendlyError(error,'Couldn\u2019t delete that card.'), true); return; }
+  const path=thumbPath(c?.thumbnail_url);
+  if(path) sb.storage.from('thumbnails').remove([path]).catch(e=>console.error(e));
+  await loadCards();
+  toast(`"${name}" deleted`);
+}
+
+document.getElementById('f_thumb')?.addEventListener('change',async e=>{
+  const f=e.target.files[0]; const p=document.getElementById('thumbPreview');
+  const err=document.getElementById('modalErr');
+  if(!f) return;
+
+  const problem=await validateImage(f);
+  if(problem){
+    err.textContent=problem; e.target.value=''; p.style.display='none';
+    pendingThumb=null; setFileName('No image chosen'); return;
+  }
+  err.textContent='';
+  setFileName('Optimizing\u2026');
+
+  pendingThumb=await compressImage(f);
+  setFileName(pendingThumb.size < f.size
+    ? `${f.name} \u2014 ${prettyBytes(f.size)} \u2192 ${prettyBytes(pendingThumb.size)}`
+    : `${f.name} \u2014 ${prettyBytes(f.size)}`);
+
+  p.src=URL.createObjectURL(pendingThumb); p.style.display='block';
+});
+
+document.getElementById('fileBtn').addEventListener('keydown',e=>{
+  if(e.key==='Enter'||e.key===' '){ e.preventDefault(); document.getElementById('f_thumb').click(); }
+});
+
+/* ---- keyboard ---- */
+function trapFocus(e, container){
+  const f=[...container.querySelectorAll('a[href],button:not([disabled]),input:not([disabled]),textarea:not([disabled]),select:not([disabled]),[tabindex]:not([tabindex="-1"])')]
+    .filter(el=>el.offsetParent!==null);
+  if(!f.length) return;
+  const first=f[0], last=f[f.length-1];
+  if(e.shiftKey && document.activeElement===first){ e.preventDefault(); last.focus(); }
+  else if(!e.shiftKey && document.activeElement===last){ e.preventDefault(); first.focus(); }
+}
+
+window.addEventListener('keydown',e=>{
+  const modal=document.getElementById('overlay');
+  const detail=document.getElementById('detailOverlay');
+  const confirmO=document.getElementById('confirmOverlay');
+  const newO=document.getElementById('newOverlay');
+  const fbO=document.getElementById('fbOverlay');
+  const openOverlay = confirmO.classList.contains('show') ? confirmO
+                    : fbO.classList.contains('show') ? fbO
+                    : newO.classList.contains('show') ? newO
+                    : modal.classList.contains('show') ? modal
+                    : detail.classList.contains('show') ? detail : null;
+
+  if(e.key==='Escape'){
+    if(confirmO.classList.contains('show')){ closeConfirm(false); return; }
+    closeWhatsNew(); closeFeedback(); closeDetail(); closeModal(); return;
+  }
+  if(e.key==='Tab' && openOverlay){ trapFocus(e, openOverlay); return; }
+  if(e.key==='Enter'){
+    if(!document.getElementById('recovery').classList.contains('hidden')) { saveNewPassword(); return; }
+    if(!document.getElementById('login').classList.contains('hidden')) signIn();
+    return;
+  }
+  // Arrow keys nudge the rail, as long as you aren't typing in a field.
+  const typing=/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName||'');
+  if(!openOverlay && !typing && !document.getElementById('app').classList.contains('hidden')){
+    if(e.key==='ArrowRight'){ scrollRail(1); }
+    if(e.key==='ArrowLeft'){ scrollRail(-1); }
+  }
+});
+
+init();
+</script>
+</body>
+</html>
